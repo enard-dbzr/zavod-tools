@@ -1,4 +1,3 @@
-import abc
 import os
 from pathlib import Path
 from typing import Optional
@@ -8,51 +7,25 @@ from torch import nn, Tensor
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 
-
-class ModelLogger(abc.ABC):
-    @abc.abstractmethod
-    def __call__(self, net: nn.Module, optimizer: torch.optim.Optimizer, criterion, train_dataloader):
-        pass
-
-    @abc.abstractmethod
-    def log_model(self):
-        pass
-
-    @abc.abstractmethod
-    def log_hparams(self):
-        pass
-
-    @abc.abstractmethod
-    def log_params(self, step=0):
-        pass
-
-    @abc.abstractmethod
-    def log_batch_metrics(self, metrics: dict[str, Tensor], step=0, tag=""):
-        pass
-
-    @abc.abstractmethod
-    def log_epoch_metrics(self, metrics: dict[str, Tensor], step=0, tag=""):
-        pass
-
-    @abc.abstractmethod
-    def save_model(self, step):
-        pass
-
-    @abc.abstractmethod
-    def __enter__(self):
-        pass
-
-    @abc.abstractmethod
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        pass
+from tools.model_logger.model_logger import ModelLogger
+from tools.model_logger.tb.plotters import TensorPlotter, BarPlotter
 
 
 class TensorBoardLogger(ModelLogger):
-    def __init__(self, comment, log_params_every=5, log_in_epoch=False, checkpoint_every=5):
+    def __init__(self, comment, log_params_every=5, log_in_epoch=False, checkpoint_every=5,
+                 default_tensor_plotter: TensorPlotter = None,
+                 tensor_plotters: dict[str, TensorPlotter] = None):
+        if default_tensor_plotter is None:
+            default_tensor_plotter = BarPlotter()
+        if tensor_plotters is None:
+            tensor_plotters = {}
+
         self.comment = comment
         self.log_params_every = log_params_every
         self.log_in_epoch = log_in_epoch
         self.checkpoint_every = checkpoint_every
+        self.default_tensor_plotter = default_tensor_plotter
+        self.specific_tensor_plotter = tensor_plotters
 
         self.writer: Optional[SummaryWriter] = None
 
@@ -100,11 +73,11 @@ class TensorBoardLogger(ModelLogger):
     def log_batch_metrics(self, metrics: dict[str, Tensor], step=0, tag=""):
         if self.log_in_epoch:
             for k, m in metrics.items():
-                self.writer.add_scalar(f"{k.capitalize()}/{tag}", m, step)
+                self._plot_metric(f"{k.capitalize()}/{tag}", k, m, step)
 
     def log_epoch_metrics(self, metrics: dict[str, Tensor], step=0, tag=""):
         for k, m in metrics.items():
-            self.writer.add_scalar(f"{k.capitalize()}/{tag}/epochwise", m, step + 1)
+            self._plot_metric(f"{k.capitalize()}/{tag}", k, m, step + 1)
 
     def save_model(self, step):
         if (step + 1) % self.checkpoint_every == 0:
@@ -112,3 +85,12 @@ class TensorBoardLogger(ModelLogger):
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.writer.close()
+
+    def _plot_metric(self, title: str, m_key: str, m: torch.Tensor, step):
+        if m.dim() == 0:
+            self.writer.add_scalar(title, m, step)
+            return
+
+        plotter = self.specific_tensor_plotter.get(m_key, self.default_tensor_plotter)
+
+        plotter.plot(self.writer, title, m, step)

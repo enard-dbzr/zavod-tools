@@ -1,37 +1,37 @@
-import os
-from pathlib import Path
 from typing import Callable, Optional
 
 import torch
-from torch import nn
-from torch.utils.tensorboard import SummaryWriter
+from torch import nn, Tensor
 from tqdm.notebook import trange, tqdm
-import seaborn as sns
 
-from tools.metric_collector import MetricCollector
-from tools.model_logger import ModelLogger
+from tools.model_logger.model_logger import ModelLogger
 
 
-def _log_metric(writer: SummaryWriter, title: str, m: torch.Tensor, step, log_tensor_mode: str = ""):
-    if m.dim() == 0:
-        writer.add_scalar(title, m, step)
-        return
+class MetricCollector:
+    def __init__(self, metrics, aggregation_fn=None):
+        self.metrics = metrics
+        self.aggregation_fn = aggregation_fn or (lambda x: torch.nanmean(x, dim=0))
 
-    if log_tensor_mode == "multiple":
-        for im, vm in enumerate(m):
-            writer.add_scalar(f"{title}/target_{im}", vm, step)
+        self.collected = {}
+        self.aggregate_and_release()
 
-        return
+    def calculate_metrics(self, y_pred, y_batch) -> dict[str, Tensor]:
+        current = {}
+        for k, v in self.metrics.items():
+            m = v(y_pred, y_batch).detach()
+            self.collected[k].append(m)
+            current[k] = m
 
-    if log_tensor_mode == "subplots":
-        writer.add_scalars(title, {f"target_{im}": vm for im, vm in enumerate(m)}, step)
-        return
+        return current
 
-    if log_tensor_mode == "barplot":
-        ax = sns.barplot(m)
-        ax.bar_label(ax.containers[0])
-        writer.add_figure(title, ax.figure, step)
-        return
+    def aggregate_and_release(self) -> dict[str, Tensor]:
+        result = {}
+        for k in self.collected:
+            result[k] = self.aggregation_fn(torch.stack(self.collected[k]))
+
+        self.collected = {k: [] for k in self.metrics}
+
+        return result
 
 
 def train_eval(net: nn.Module,
@@ -91,39 +91,39 @@ def train_eval(net: nn.Module,
 
 
 
-def evaluate(net: nn.Module,
-             dataloader: torch.utils.data.DataLoader,
-             metrics: Optional[dict[str, Callable]] = None,
-             device="cpu",
-             comment="",
-             log_tensor_mode="subplots"):
-    if metrics is None:
-        metrics = {}
-
-    net.to(device)
-
-    writer = SummaryWriter(comment=(f"_{comment}_EVAL" if comment else ""))
-
-    metric_values = {k: [] for k in metrics}
-
-    net.eval()
-    with torch.no_grad():
-        for i, (x_batch, y_batch) in enumerate(tqdm(dataloader)):
-            x_batch, y_batch = x_batch.to(device), y_batch.to(device)
-            y_pred = net(x_batch)
-
-            for k, v in metrics.items():
-                m = v(y_pred, y_batch).detach()
-                metric_values[k].append(m)
-
-                _log_metric(writer, f"{k.capitalize()}/val", m, step=i, log_tensor_mode=log_tensor_mode)
-
-    print(writer.log_dir)
-    for k in metric_values:
-        u_metrics = torch.stack(metric_values[k])
-        m_val = u_metrics.nanmean()
-        print(f"Mean {k}: {m_val}")
-
-    writer.close()
-
-    return metric_values
+# def evaluate(net: nn.Module,
+#              dataloader: torch.utils.data.DataLoader,
+#              metrics: Optional[dict[str, Callable]] = None,
+#              device="cpu",
+#              comment="",
+#              log_tensor_mode="subplots"):
+#     if metrics is None:
+#         metrics = {}
+#
+#     net.to(device)
+#
+#     writer = SummaryWriter(comment=(f"_{comment}_EVAL" if comment else ""))
+#
+#     metric_values = {k: [] for k in metrics}
+#
+#     net.eval()
+#     with torch.no_grad():
+#         for i, (x_batch, y_batch) in enumerate(tqdm(dataloader)):
+#             x_batch, y_batch = x_batch.to(device), y_batch.to(device)
+#             y_pred = net(x_batch)
+#
+#             for k, v in metrics.items():
+#                 m = v(y_pred, y_batch).detach()
+#                 metric_values[k].append(m)
+#
+#                 _log_metric(writer, f"{k.capitalize()}/val", m, step=i, log_tensor_mode=log_tensor_mode)
+#
+#     print(writer.log_dir)
+#     for k in metric_values:
+#         u_metrics = torch.stack(metric_values[k])
+#         m_val = u_metrics.nanmean()
+#         print(f"Mean {k}: {m_val}")
+#
+#     writer.close()
+#
+#     return metric_values
