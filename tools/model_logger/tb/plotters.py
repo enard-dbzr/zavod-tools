@@ -3,6 +3,7 @@ import abc
 import seaborn as sns
 import torch
 from matplotlib import pyplot as plt
+import matplotlib.ticker as ticker 
 from torch.utils.tensorboard import SummaryWriter
 
 
@@ -24,15 +25,20 @@ class ScalarsPlotter(TensorPlotter):
 
 
 class BarPlotter(TensorPlotter):
-    def __init__(self, figsize=(6.4, 4.8), show_values=False, log_scale=False):
+    def __init__(self, figsize=(6.4, 4.8), show_values=False, log_scale=False, y_lims=(None, None)):
         self.figsize = figsize
         self.show_values = show_values
         self.log_scale = log_scale
+        self.y_lims = y_lims
 
     def plot(self, writer: SummaryWriter, title: str, m: torch.Tensor, step):
         fig, ax = plt.subplots(figsize=self.figsize)
 
         sns.barplot(m, ax=ax)
+        
+        ax.xaxis.set_major_locator(ticker.MaxNLocator(5))
+        ax.xaxis.set_major_formatter(ticker.ScalarFormatter())
+        ax.set_ylim(*self.y_lims)
 
         if self.show_values:
             ax.bar_label(ax.containers[0])
@@ -42,14 +48,16 @@ class BarPlotter(TensorPlotter):
 
         # fig.tight_layout()
 
+
         writer.add_figure(title, fig, step)
 
 
 class HeatmapPlotter(TensorPlotter):
-    def __init__(self, figsize=(6.4, 4.8), permute=None, show_values=False):
+    def __init__(self, figsize=(6.4, 4.8), permute=None, show_values=False, cbar_lims=None):
         self.figsize = figsize
         self.permute = permute
         self.show_values = show_values
+        self.cbar_lims = cbar_lims
 
     def plot(self, writer: SummaryWriter, title: str, m: torch.Tensor, step):
         fig, ax = plt.subplots(figsize=self.figsize)
@@ -58,7 +66,7 @@ class HeatmapPlotter(TensorPlotter):
         if self.permute is not None:
             m = m.permute(self.permute)
 
-        sns.heatmap(m, annot=self.show_values, ax=ax)
+        sns.heatmap(m, annot=self.show_values, ax=ax, vmin=self.cbar_lims[0], vmax=self.cbar_lims[1])
 
         # fig.tight_layout()
         writer.add_figure(title, fig, step)

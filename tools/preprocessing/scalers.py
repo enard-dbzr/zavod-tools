@@ -65,8 +65,8 @@ class RobustScaler(Transform, DataUnscaler):
             self.median = df.median()
             self.iqr = df.quantile(0.5 + self.q_width / 2) - df.quantile(0.5 - self.q_width / 2)
 
-            self.t_median = torch.tensor(self.median.to_numpy(), device=self.device)
-            self.t_iqr = torch.tensor(self.iqr.to_numpy(), device=self.device)
+            self.t_median = torch.tensor(self.median.to_numpy(dtype='float32'), device=self.device)
+            self.t_iqr = torch.tensor(self.iqr.to_numpy(dtype='float32'), device=self.device)
 
         df = (df - self.median) / self.iqr
 

@@ -77,7 +77,7 @@ class TensorBoardLogger(ModelLogger):
 
     def log_epoch_metrics(self, metrics: dict[str, Tensor], step=0, tag=""):
         for k, m in metrics.items():
-            self._plot_metric(f"{k.capitalize()}/{tag}", k, m, step + 1)
+            self._plot_metric(f"{k.capitalize()}/{tag}/epochwise", k, m, step + 1)
 
     def save_model(self, step):
         if (step + 1) % self.checkpoint_every == 0:
@@ -93,4 +93,4 @@ class TensorBoardLogger(ModelLogger):
 
         plotter = self.specific_tensor_plotter.get(m_key, self.default_tensor_plotter)
 
-        plotter.plot(self.writer, title, m, step)
+        plotter.plot(self.writer, title, m.detach().cpu(), step)
