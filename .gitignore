@@ -1,1 +1,9 @@
+/*
 
+!/tools/
+!/tools/**/*
+
+**/__pycache__/*
+
+!.gitignore
+!.git/
