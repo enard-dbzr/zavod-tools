@@ -25,19 +25,24 @@ class ScalarsPlotter(TensorPlotter):
 
 
 class BarPlotter(TensorPlotter):
-    def __init__(self, figsize=(6.4, 4.8), show_values=False, log_scale=False, y_lims=(None, None)):
+    def __init__(self, figsize=(6.4, 4.8), show_values=False, log_scale=False, y_lims=(None, None), n_ticks=None):
         self.figsize = figsize
         self.show_values = show_values
         self.log_scale = log_scale
         self.y_lims = y_lims
+        self.n_ticks = n_ticks
 
     def plot(self, writer: SummaryWriter, title: str, m: torch.Tensor, step):
         fig, ax = plt.subplots(figsize=self.figsize)
 
         sns.barplot(m, ax=ax)
+        if self.log_scale and 0 in self.y_lims:
+            raise ValueError('Один из пределов 0, при log_scale=True!')
         
-        ax.xaxis.set_major_locator(ticker.MaxNLocator(5))
-        ax.xaxis.set_major_formatter(ticker.ScalarFormatter())
+        if self.n_ticks is not None:
+            ax.xaxis.set_major_locator(ticker.MaxNLocator(self.n_ticks))
+            ax.xaxis.set_major_formatter(ticker.ScalarFormatter())
+
         ax.set_ylim(*self.y_lims)
 
         if self.show_values:
