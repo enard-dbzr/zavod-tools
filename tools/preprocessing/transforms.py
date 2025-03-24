@@ -5,6 +5,8 @@ import numpy as np
 import pandas as pd
 from sklearn.cluster import MiniBatchKMeans
 
+from tools.dataset import PEMSDataset
+
 class Transform(abc.ABC):
     """
     Абстрактный базовый класс для преобразований данных.
@@ -102,10 +104,9 @@ class UnitedFunctionTransform(Transform):
         return df.iloc[:, :len(x.columns)], df.iloc[:, len(x.columns):]
 
 
-class FfillWithTimeDelta(Transform):
+class AddTimeDelta(Transform):
     """
-    Заполнение пропусков методом forward fill с добавлением дельты - счётчика 
-    пропущенных значений для каждого интервала.
+    Добавляет дельту - счётчик пропущенных значений для каждого интервала.
     """
     def __call__(self, x, y):
         x, y = x.copy(), y.copy()
@@ -119,9 +120,126 @@ class FfillWithTimeDelta(Transform):
             df = y[col]
             y[f"{col}_delta"] = df.isna().groupby(df.notna().cumsum()).cumsum()
 
-        # Заполнение пропусков
-        x.ffill(inplace=True)
-        y.ffill(inplace=True)
+        return x, y
+
+class Filler(Transform):
+    """
+    Универсальный филлер для заполнения пропущенных значений.
+    
+    Attributes:
+        strategy (str/dict): Стратегия заполнения ('mean', 'median', 'mode', 
+                            'ffill', 'bfill', 'interpolate'). Можно указать отдельно для колонок.
+        method: Метод интерполяции ('linear', 'time', 'nearest' и т.д.)
+        limit: Максимальное количество последовательных заполнений
+        group_by: Колонка для группового заполнения
+        use_global_stats: Использовать глобальные статистики (медиана/среднее и т.д.)
+        custom_func: Пользовательская функция заполнения
+    """
+    def __init__(self, 
+                 strategy: str | dict = 'ffill',
+                 constant_value: any = None,
+                 method: str = 'linear',
+                 limit: int = None,
+                 group_by: str = None,
+                 use_global_stats: bool = False,
+                 custom_func: Callable[[pd.Series], pd.Series] = None):
+        self.strategy = strategy
+        self.constant_value = constant_value
+        self.method = method
+        self.limit = limit
+        self.group_by = group_by
+        self.use_global_stats = use_global_stats
+        self.custom_func = custom_func
+        
+        self.global_stats = {}
+        self._validate_parameters()
+
+    def _validate_parameters(self):
+        valid_strategies = ['mean', 'median', 'mode', 
+                           'ffill', 'bfill', 'interpolate']
+        
+        if isinstance(self.strategy, dict):
+            for col, strat in self.strategy.items():
+                if strat not in valid_strategies + ['custom']:
+                    raise ValueError(f"Недопустимая стратегия для колонки {col}")
+        elif self.strategy not in valid_strategies:
+            raise ValueError(f"Недопустимая стратегия: {self.strategy}")
+
+
+    def _get_strategy_for_column(self, col: str) -> str:
+        """Возвращает стратегию для конкретной колонки"""
+        if isinstance(self.strategy, dict):
+            return self.strategy.get(col, 'ffill')  # default
+        return self.strategy
+
+    def _calc_global_stats(self, x: pd.DataFrame):
+        """Вычисляет глобальные статистики для числовых колонок"""
+        numeric_cols = x.select_dtypes(include=np.number).columns
+        for col in numeric_cols:
+            strategy = self._get_strategy_for_column(col)
+            
+            if strategy == 'mean':
+                self.global_stats[col] = x[col].mean()
+            elif strategy == 'median':
+                self.global_stats[col] = x[col].median()
+            elif strategy == 'mode':
+                self.global_stats[col] = x[col].mode()[0]
+
+    def _fill_column(self, 
+                    series: pd.Series, 
+                    strategy: str) -> pd.Series:
+        """Заполняет пропуски в одной колонке"""
+        if self.custom_func:
+            return self.custom_func(series)
+            
+        if strategy == 'mean':
+            fill_value = self.global_stats[series.name] if self.use_global_stats else series.mean()
+            return series.fillna(fill_value, limit=self.limit)
+            
+        if strategy == 'median':
+            fill_value = self.global_stats[series.name] if self.use_global_stats else series.median()
+            return series.fillna(fill_value, limit=self.limit)
+            
+        if strategy == 'mode':
+            fill_value = self.global_stats[series.name] if self.use_global_stats else series.mode()[0]
+            return series.fillna(fill_value, limit=self.limit)
+            
+        if strategy == 'ffill':
+            return series.ffill(limit=self.limit)
+            
+        if strategy == 'bfill':
+            return series.bfill(limit=self.limit)
+            
+        if strategy == 'interpolate':
+            return series.interpolate(method=self.method, limit=self.limit)
+            
+        return series
+
+    def _apply_filling(self, df):
+        if self.use_global_stats and not self.global_stats:
+            self._calc_global_stats(df)
+            
+        if self.group_by and self.group_by in df.columns:
+            df = df.groupby(self.group_by).apply(
+                lambda g: g.transform(
+                    lambda col: self._fill_column(col, self._get_strategy_for_column(col.name))
+            ))
+        else:
+            for col in df.columns:
+                strategy = self._get_strategy_for_column(col)
+                df[col] = self._fill_column(df[col], strategy)
+                
+        if self.use_global_stats and not self.global_stats:
+            self._calc_global_stats(df)
+
+        return df
+
+    def __call__(self, x: pd.DataFrame, y: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
+        x, y = x.copy(), y.copy()
+        
+        x = self._apply_filling(x)
+        y = self._apply_filling(y)
+            
         return x, y
 
 
@@ -142,11 +260,11 @@ class Resample(Transform):
         df = getattr(df.resample(self.rule), self.aggregation)()
         return df.iloc[:, :len(x.columns)], df.iloc[:, len(x.columns):]
 
-class KMeansClusterTransformer(Transform):
+class KMeansClusterTransform(Transform):
     def __init__(self, 
                  n_clusters: int = 8,
                  include_targets=False,
-                 batch_size: int = 1000,
+                 batch_size: int = 30_000,
                  max_buffer_size: int = None,
                  random_state: int = None,
                  cluster_column: str = 'cluster'):
@@ -208,6 +326,38 @@ class KMeansClusterTransformer(Transform):
             
         return x_new, y
 
-    def force_fit(self):
-        """Принудительное обучение на остатках данных в буфере"""
+    def force_fit(self, data: pd.DataFrame | PEMSDataset = None):
+        """Принудительное обучение"""
+        if data is not None:
+            if isinstance(data, PEMSDataset):
+                data = data.x
+            self._add_to_buffer(data)
+        
         self._partial_fit()
+
+        return self
+
+
+class OneHotEncoderTransform(Transform):
+    """
+    Создает one-hot кодирование для указанной колонки.
+    
+    Attributes:
+        column: Название колонки
+    """
+    def __init__(self, column: str, drop_original: bool = True, drop_first: bool = True):
+        self.column = column
+        self.drop_original = drop_original
+        self.drop_first = drop_first
+
+    def __call__(self, x: pd.DataFrame, y: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
+        if self.column not in x.columns:
+            return x, y
+            
+        dummies = pd.get_dummies(x[self.column], prefix=self.column, drop_first=self.drop_first)
+        x = pd.concat([x, dummies], axis=1)
+        
+        if self.drop_original:
+            x = x.drop(columns=[self.column])
+            
+        return x, y
