@@ -1,11 +1,9 @@
 import abc
-from typing import Callable
+from typing import Callable, Union
 import warnings 
 import numpy as np
 import pandas as pd
 from sklearn.cluster import MiniBatchKMeans
-
-from tools.dataset import PEMSDataset
 
 class Transform(abc.ABC):
     """
@@ -135,8 +133,8 @@ class Filler(Transform):
         use_global_stats: Использовать глобальные статистики (медиана/среднее и т.д.)
         custom_func: Пользовательская функция заполнения
     """
-    def __init__(self, 
-                 strategy: str | dict = 'ffill',
+    def __init__(self,
+                 strategy: Union[str, dict] = 'ffill',
                  constant_value: any = None,
                  method: str = 'linear',
                  limit: int = None,
@@ -260,6 +258,7 @@ class Resample(Transform):
         df = getattr(df.resample(self.rule), self.aggregation)()
         return df.iloc[:, :len(x.columns)], df.iloc[:, len(x.columns):]
 
+
 class KMeansClusterTransform(Transform):
     def __init__(self, 
                  n_clusters: int = 8,
@@ -326,8 +325,9 @@ class KMeansClusterTransform(Transform):
             
         return x_new, y
 
-    def force_fit(self, data: pd.DataFrame | PEMSDataset = None):
+    def force_fit(self, data: Union[pd.DataFrame, "PEMSDataset"] = None):
         """Принудительное обучение"""
+        from tools.dataset import PEMSDataset
         if data is not None:
             if isinstance(data, PEMSDataset):
                 data = data.x
