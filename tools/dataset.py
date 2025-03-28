@@ -39,7 +39,7 @@ class PEMSDataset(torch.utils.data.Dataset):
             self.apply_filler(filler)
 
     def apply_filler(self, filler: Transform):
-        self.x, self.y = filler(self.x, self.y)
+        self.x, self.y = filler(self.x, self.y, self.independent_borders)
 
     def split(self, sizes: list[float]) -> list["PEMSDataset"]:
         borders = torch.tensor([0] + sizes).cumsum(0)

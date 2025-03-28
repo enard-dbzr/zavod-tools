@@ -16,7 +16,7 @@ class FilterOutliers(Transform):
         self.limits = limits
         self.file_paths = file_paths
 
-    def __call__(self, x: pd.DataFrame, y: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
+    def __call__(self, x: pd.DataFrame, y: pd.DataFrame, borders) -> tuple[pd.DataFrame, pd.DataFrame]:
         df = pd.concat([x, y], axis=1)
 
         for path in self.file_paths:
@@ -48,7 +48,7 @@ class IQRFilter(Transform):
         self.columns = columns
         self.iqr_multiplier = iqr_multiplier
 
-    def __call__(self, x: pd.DataFrame, y: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
+    def __call__(self, x: pd.DataFrame, y: pd.DataFrame, borders) -> tuple[pd.DataFrame, pd.DataFrame]:
         x_filtered = x.copy()
         
         if self.columns is None:
@@ -160,7 +160,7 @@ class ColumnValueFilter(Transform):
         
         return list(set(values))
 
-    def __call__(self, x: pd.DataFrame, y: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
+    def __call__(self, x: pd.DataFrame, y: pd.DataFrame, borders) -> tuple[pd.DataFrame, pd.DataFrame]:
         if self.column_name not in x.columns:
             raise ValueError(f"Колонка {self.column_name} не найдена")
 

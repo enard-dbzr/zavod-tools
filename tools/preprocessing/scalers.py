@@ -25,7 +25,7 @@ class NormalScaler(Transform, DataUnscaler):
 
         self.device = device
 
-    def __call__(self, x: pd.DataFrame, y: pd.DataFrame):
+    def __call__(self, x: pd.DataFrame, y: pd.DataFrame, borders):
         df = pd.concat([x, y], axis=1)
 
         if self.mu is None:
@@ -58,7 +58,7 @@ class RobustScaler(Transform, DataUnscaler):
 
         self.device = device
 
-    def __call__(self, x: pd.DataFrame, y: pd.DataFrame):
+    def __call__(self, x: pd.DataFrame, y: pd.DataFrame, borders):
         df = pd.concat([x, y], axis=1)
 
         if self.median is None:
