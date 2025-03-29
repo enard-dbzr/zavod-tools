@@ -43,7 +43,7 @@ class TransformPipeline(Transform):
 
     def __call__(self, x, y, borders):
         for t in self.transforms:
-            x, y = t(x, y)
+            x, y = t(x, y, borders)
 
         return x, y
 
@@ -71,7 +71,7 @@ class SpecifiedColumnsTransform(Transform):
         x_columns = [c for c in x.columns if c in self.columns]
         y_columns = [c for c in y.columns if c in self.columns]
 
-        updated_x, updated_y = self.transform(x[x_columns], y[y_columns])
+        updated_x, updated_y = self.transform(x[x_columns], y[y_columns], borders)
 
         x.loc[updated_x.index, updated_x.columns] = updated_x
         y.loc[updated_y.index, updated_y.columns] = updated_y
@@ -119,15 +119,21 @@ class BordersDependentTransform(Transform):
     def __call__(self, x: pd.DataFrame, y: pd.DataFrame, borders: list[pd.DatetimeIndex]) -> tuple[
         pd.DataFrame, pd.DataFrame]:
 
+        xs = []
+        ys = []
+
         borders = borders.copy() + [x.index.max()]
         for i in range(len(borders) - 1):
             # FIXME: самое последнее окно не учитывается
             x_split = x.loc[borders[i]:borders[i + 1]].iloc[:-1]
             y_split = y.loc[borders[i]:borders[i + 1]].iloc[:-1]
 
-            x_split[:], y_split[:] = self.transform(x_split, y_split, [])
+            new_x, new_y = self.transform(x_split, y_split, [])
 
-        return x, y
+            xs.append(new_x)
+            ys.append(new_y)
+
+        return pd.concat(xs), pd.concat(ys)
 
 
 class AddTimeDelta(Transform):
