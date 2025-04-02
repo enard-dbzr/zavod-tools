@@ -129,8 +129,11 @@ class ColumnValueFilter(Transform):
             warnings.warn(f"Пропущены отсутствующие индексы: {missing_indices}", UserWarning)
 
         valid_indices = [idx for idx in indices if idx in x.index]
-        # print(x.loc[valid_indices, self.column_name])
-        return x.loc[valid_indices, self.column_name].unique().tolist()
+
+        # Грязный и медленный хак, чтоб срезы по датам получались...
+        values = pd.concat([x.loc[idx, self.column_name] for idx in valid_indices])
+
+        return values.unique().tolist()
 
     def _prepare_filter_values(self, x: pd.DataFrame) -> list:
         """Формирует итоговый список значений для фильтрации"""
