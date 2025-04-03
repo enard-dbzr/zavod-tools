@@ -32,14 +32,18 @@ class PEMSDataset(torch.utils.data.Dataset):
         self.x = df[self.features]
         self.y = df[self.targets]
 
-        self.independent_borders = None
-        self._cumulative_sizes = None
-
         if filler is not None:
             self.apply_filler(filler)
 
+        self._cumulative_sizes = None
+
+        self.independent_borders = [self.x.index.min(), self.x.index.max() + self.x.index[0].resolution]
+        self.update_sizes()
+
     def apply_filler(self, filler: Transform):
         self.x, self.y = filler(self.x, self.y, self.independent_borders)
+
+        self.update_sizes()
 
     def split(self, sizes: list[float]) -> list["PEMSDataset"]:
         borders = torch.tensor([0] + sizes).cumsum(0)
@@ -52,6 +56,9 @@ class PEMSDataset(torch.utils.data.Dataset):
 
             split.x = self.x.iloc[int(original_size * borders[i]): int(original_size * borders[i + 1])].copy()
             split.y = self.y.iloc[int(original_size * borders[i]): int(original_size * borders[i + 1])].copy()
+
+            split.independent_borders = [split.x.index.min(), split.x.index.max() + split.x.index[0].resolution]
+            split.update_sizes()
 
             splits.append(split)
 
@@ -103,12 +110,6 @@ class PEMSDataset(torch.utils.data.Dataset):
 
     @cache
     def get_sample(self, idx):
-        if self.independent_borders is None:
-            x_sample: pd.DataFrame = self.x.iloc[idx * self.stride: idx * self.stride + self.window_size]
-            y_sample: pd.DataFrame = self.y.iloc[idx * self.stride: idx * self.stride + self.window_size]
-
-            return x_sample, y_sample
-
         gr_size_index = next((i for i, v in enumerate(self._cumulative_sizes) if v > idx))
         accum_size = self._cumulative_sizes[gr_size_index - 1]
 
@@ -125,17 +126,12 @@ class PEMSDataset(torch.utils.data.Dataset):
         return x_sample, y_sample
 
     def __len__(self):
-        if self.independent_borders is None:
-            return (len(self.x) - self.window_size) // self.stride + 1
-
-        self.update_sizes()
-
         return self._cumulative_sizes[-1]
 
     def __getitem__(self, idx):
         x_sample, y_sample = self.get_sample(idx)
 
         if self.transform is not None:
-            x_sample, y_sample = self.transform(x_sample, y_sample)
+            x_sample, y_sample = self.transform(x_sample, y_sample, [])
 
         return x_sample.astype(self.dtype).to_numpy(), y_sample.astype(self.dtype).to_numpy()
