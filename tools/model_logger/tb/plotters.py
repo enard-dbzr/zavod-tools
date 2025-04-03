@@ -34,8 +34,8 @@ class BarPlotter(TensorPlotter):
 
     def plot(self, writer: SummaryWriter, title: str, m: torch.Tensor, step):
         fig, ax = plt.subplots(figsize=self.figsize)
+        bars = sns.barplot(m, ax=ax)
 
-        sns.barplot(m, ax=ax)
         if self.log_scale and 0 in self.y_lims:
             raise ValueError('Один из пределов 0, при log_scale=True!')
         
@@ -46,13 +46,15 @@ class BarPlotter(TensorPlotter):
         ax.set_ylim(*self.y_lims)
 
         if self.show_values:
-            ax.bar_label(ax.containers[0])
+            ax.bar_label(
+                bars.containers[0], 
+                label_type='center',
+                color="white",
+                fontweight="bold"
+            )
 
         if self.log_scale:
             ax.set_yscale("log")
-
-        # fig.tight_layout()
-
 
         writer.add_figure(title, fig, step)
 
