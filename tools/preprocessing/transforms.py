@@ -303,12 +303,14 @@ class KMeansClusterTransform(Transform):
                  batch_size: int = 30_000,
                  max_buffer_size: int = None,
                  random_state: int = None,
-                 cluster_column: str = 'cluster'):
+                 cluster_column: str = 'cluster',
+                 interpolator: Transform = None):
         """
         Parameters:
         n_clusters: количество кластеров
         batch_size: размер батча для частичного обучения
         max_buffer_size: максимальный размер буфера для накопления данных
+        interpolator: Трансформ для заполнения нанов. По умолчанию: TransformPipeline(Filler("ffill"), Filler("bfill")).
         """
         self.n_clusters = n_clusters
         self.include_targets = include_targets
@@ -316,6 +318,7 @@ class KMeansClusterTransform(Transform):
         self.max_buffer_size = max_buffer_size
         self.random_state = random_state
         self.cluster_column = cluster_column
+        self.interpolator = interpolator or TransformPipeline(Filler("ffill"), Filler("bfill"))
 
         self.model = MiniBatchKMeans(
             n_clusters=n_clusters,
@@ -340,17 +343,20 @@ class KMeansClusterTransform(Transform):
             self.is_initialized = True
 
     def __call__(self, x: pd.DataFrame, y: pd.DataFrame, borders) -> tuple[pd.DataFrame, pd.DataFrame]:
-        x_new = x.copy()
+        interpolated_df = pd.concat(self.interpolator(x, y, borders), axis=1)
 
-        self._add_to_buffer(x_new)
+        if interpolated_df.isna().values.any():
+            raise ValueError("В данных не должно содержаться NaN. Проверь interpolator.")
+
+        self._add_to_buffer(interpolated_df)
 
         if len(self.buffer) >= self.batch_size:
             self._partial_fit()
 
         # Предсказание кластеров если модель инициализирована
         if self.is_initialized:
-            clusters = self.model.predict(x_new.to_numpy())
-            x_new[self.cluster_column] = clusters
+            clusters = self.model.predict(interpolated_df.to_numpy())
+            x[self.cluster_column] = clusters
             unique_clusters = len(np.unique(clusters))
             if unique_clusters < self.n_clusters:
                 warnings.warn(
@@ -360,7 +366,7 @@ class KMeansClusterTransform(Transform):
         else:
             pass
 
-        return x_new, y
+        return x, y
 
     def force_fit(self, data: Union[pd.DataFrame, "PEMSDataset"] = None):
         """Принудительное обучение"""
