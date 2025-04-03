@@ -124,9 +124,8 @@ class BordersDependentTransform(Transform):
 
         borders = borders.copy() + [x.index.max()]
         for i in range(len(borders) - 1):
-            # FIXME: самое последнее окно не учитывается
-            x_split = x.loc[borders[i]:borders[i + 1]].iloc[:-1]
-            y_split = y.loc[borders[i]:borders[i + 1]].iloc[:-1]
+            x_split = x.loc[borders[i]: borders[i + 1] - x.index[0].resolution]
+            y_split = y.loc[borders[i]: borders[i + 1] - y.index[0].resolution]
 
             new_x, new_y = self.transform(x_split, y_split, [])
 

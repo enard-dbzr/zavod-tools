@@ -84,7 +84,7 @@ class PEMSDataset(torch.utils.data.Dataset):
             split.x = self.x.iloc[source_indices].copy()
             split.y = self.y.iloc[source_indices].copy()
 
-            split.independent_borders = i_time_split
+            split.independent_borders = i_time_split + [split.x.index.max() + split.x.index[0].resolution]
             split.update_sizes()
 
             splits.append(split)
@@ -93,11 +93,10 @@ class PEMSDataset(torch.utils.data.Dataset):
 
     def update_sizes(self):
         cur = 0
-        borders = self.independent_borders + [self.x.index.max()]
         self._cumulative_sizes = [0]
-        for i in range(len(borders) - 1):
-            # FIXME: самое последнее окно не учитывается
-            split = self.x.loc[borders[i]:borders[i + 1]].iloc[:-1]
+        for i in range(len(self.independent_borders) - 1):
+            split = self.x.loc[self.independent_borders[i]:
+                               self.independent_borders[i + 1] - self.x.index[0].resolution]
 
             cur += (len(split) - self.window_size) // self.stride + 1
             self._cumulative_sizes.append(cur)
@@ -110,7 +109,6 @@ class PEMSDataset(torch.utils.data.Dataset):
 
             return x_sample, y_sample
 
-        # FIXME: самое последнее окно не учитывается
         gr_size_index = next((i for i, v in enumerate(self._cumulative_sizes) if v > idx))
         accum_size = self._cumulative_sizes[gr_size_index - 1]
 
