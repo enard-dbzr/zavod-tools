@@ -32,13 +32,11 @@ class PEMSDataset(torch.utils.data.Dataset):
         self.x = df[self.features]
         self.y = df[self.targets]
 
-        if filler is not None:
-            self.apply_filler(filler)
-
+        self.independent_borders = [self.x.index.min(), self.x.index.max() + self.x.index[0].resolution]
         self._cumulative_sizes = None
 
-        self.independent_borders = [self.x.index.min(), self.x.index.max() + self.x.index[0].resolution]
-        self.update_sizes()
+        if filler is not None:
+            self.apply_filler(filler)
 
     def apply_filler(self, filler: Transform):
         self.x, self.y = filler(self.x, self.y, self.independent_borders)
