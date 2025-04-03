@@ -122,7 +122,6 @@ class BordersDependentTransform(Transform):
         xs = []
         ys = []
 
-        borders = borders.copy() + [x.index.max()]
         for i in range(len(borders) - 1):
             x_split = x.loc[borders[i]: borders[i + 1] - x.index[0].resolution]
             y_split = y.loc[borders[i]: borders[i + 1] - y.index[0].resolution]
