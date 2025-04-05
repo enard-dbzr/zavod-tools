@@ -124,17 +124,19 @@ class ColumnValueFilter(Transform):
 
     def _get_values_from_indices(self, x: pd.DataFrame, indices: list) -> list:
         """Извлекает значения из колонки по указанным индексам"""
-        missing_indices = [idx for idx in indices if idx not in x.index]
-        
-        if missing_indices and self.strict_mode and not self.use_latest:
-            raise ValueError(f"Индексы не найдены: {missing_indices}")
-        elif missing_indices and not self.use_latest:
-            warnings.warn(f"Пропущены отсутствующие индексы: {missing_indices}", UserWarning)
+        splits = []
+        for idx in indices:
+            l, r = idx if isinstance(idx, tuple) else (idx, idx)
+            s = x.loc[l:r, self.column_name]
 
-        valid_indices = [idx for idx in indices if idx in x.index]
+            if s.empty and not self.use_latest:
+                warnings.warn(f"Пропущен отсутствующий индекс: {idx}", UserWarning)
+                if self.strict_mode:
+                    raise ValueError(f"Индекс не найден: {idx}")
 
-        # Грязный и медленный хак, чтоб срезы по датам получались...
-        values = pd.concat([x.loc[idx, self.column_name] for idx in valid_indices])
+            splits.append(x.loc[l:r, self.column_name])
+
+        values = pd.concat(splits)
 
         return values.unique().tolist()
 
@@ -187,7 +189,7 @@ class ColumnValueFilter(Transform):
         filtered_y = y[mask].copy()
 
         removed = len(x) - len(filtered_x)
-        remaining = filtered_x[self.column_name].nunique()
+        remaining = filtered_x[self.column_name].unique()
         print(f"Удалено строк: {removed}")
         print(f"Уникальных значений осталось: {remaining}")
 
