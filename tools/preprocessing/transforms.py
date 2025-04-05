@@ -310,13 +310,19 @@ class KMeansClusterTransform(Transform):
         max_buffer_size: максимальный размер буфера для накопления данных
         interpolator: Трансформ для заполнения нанов. По умолчанию: TransformPipeline(Filler("ffill"), Filler("bfill")).
         """
+        from tools.preprocessing.scalers import NormalScaler
+
         self.n_clusters = n_clusters
         self.include_targets = include_targets
         self.batch_size = batch_size
         self.max_buffer_size = max_buffer_size
         self.random_state = random_state
         self.cluster_column = cluster_column
-        self.interpolator = interpolator or TransformPipeline(Filler("ffill"), Filler("bfill"))
+        self.interpolator = interpolator or TransformPipeline(
+            Filler("ffill"),
+            Filler("bfill"),
+            NormalScaler()
+        )
 
         self.model = MiniBatchKMeans(
             n_clusters=n_clusters,
