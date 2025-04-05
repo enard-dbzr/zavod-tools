@@ -354,7 +354,7 @@ class KMeansClusterTransform(Transform):
         # Предсказание кластеров если модель инициализирована
         if self.is_initialized:
             clusters = self.model.predict(interpolated_df.to_numpy())
-            x[self.cluster_column] = clusters
+            x.loc[:,self.cluster_column] = clusters
             unique_clusters = len(np.unique(clusters))
             if unique_clusters < self.n_clusters:
                 warnings.warn(

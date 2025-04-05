@@ -14,7 +14,7 @@ class Metric(abc.ABC):
                  aggregation_fn: Optional[Callable] = torch.nanmean,
                  axis: Optional[int] = None):
         self.aggregation_fn = aggregation_fn
-        self.axis = axis
+        self.axis = axis and (axis if isinstance(axis, tuple) else (axis,))
 
     @abc.abstractmethod
     def compute(self, y_pred: torch.Tensor, y_true: torch.Tensor) -> torch.Tensor:
@@ -26,7 +26,12 @@ class Metric(abc.ABC):
         if self.aggregation_fn is None:
             return errors
         if self.axis is not None:
-            return self.aggregation_fn(errors, dim=self.axis)
+            dim = [d if d >= 0 else errors.ndim + d for d in self.axis]  # Обработка отрицательных индексов
+            keep_dims = [d for d in range(errors.ndim) if d not in dim]  # Измерения, которые остаются
+            flattened = errors.permute(*keep_dims, *dim).flatten(start_dim=len(keep_dims))  # Группируем dim в конец и объединяем
+            aggregated = self.aggregation_fn(flattened, dim=-1)
+            # FIXME: Very very very fucked
+            return aggregated[0] if isinstance(aggregated, tuple) else aggregated
         else:
             return self.aggregation_fn(errors)
 

@@ -35,8 +35,8 @@ class NormalScaler(Transform, DataUnscaler):
             self.sigma /= self.target_sigma
             self.mu -= self.target_mu * self.sigma
 
-            self.t_mu = torch.tensor(self.mu.to_numpy(), device=self.device)
-            self.t_sigma = torch.tensor(self.sigma.to_numpy(), device=self.device)
+            self.t_mu = torch.tensor(self.mu.to_numpy(dtype='float32'), device=self.device)
+            self.t_sigma = torch.tensor(self.sigma.to_numpy(dtype='float32'), device=self.device)
 
         df = (df - self.mu) / self.sigma
 
