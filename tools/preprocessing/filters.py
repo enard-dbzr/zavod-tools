@@ -86,6 +86,7 @@ class ColumnValueFilter(Transform):
         strict_mode (bool): Вызывать ошибку при отсутствии индексов
         use_latest (bool): Накапливать историю значений из колонки
         gap (str): Временная окрестность для исключения
+        shift (str): Сдвиг маски
     """
     def __init__(self,
                  column_name: str,
@@ -98,7 +99,8 @@ class ColumnValueFilter(Transform):
                  condition: Callable[[pd.Series], bool] = None,
                  strict_mode: bool = True,
                  use_latest: bool = False,
-                 gap: str = "1min"):
+                 gap: str = "1min",
+                 shift: str = "0min"):
         self.column_name = column_name
         self.exclude_values = exclude_values or []
         self.include_values = include_values or []
@@ -110,6 +112,7 @@ class ColumnValueFilter(Transform):
         self.strict_mode = strict_mode
         self.use_latest = use_latest
         self.gap = gap
+        self.shift = shift
         self.accumulated_values = set()
 
         self._validate_parameters()
@@ -184,6 +187,7 @@ class ColumnValueFilter(Transform):
             mask = ~x[self.column_name].isin(filter_values)
 
         mask = mask.rolling(self.gap, center=True).min() == 1
+        mask = mask.shift(freq=self.shift).reindex(x.index, fill_value=True)
 
         filtered_x = x[mask].copy()
         filtered_y = y[mask].copy()
