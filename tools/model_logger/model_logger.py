@@ -20,6 +20,10 @@ class ModelLogger(abc.ABC):
     @abc.abstractmethod
     def log_params(self, step=0):
         pass
+    
+    @abc.abstractmethod
+    def log_predictions(self, step=0, y_pred=None, y_true=None):
+        pass
 
     @abc.abstractmethod
     def log_batch_metrics(self, metrics: dict[str, Tensor], step=0, tag=""):

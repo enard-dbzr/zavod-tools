@@ -82,9 +82,12 @@ class TensorBoardLogger(ModelLogger):
             for name, param in self.net.named_parameters():
                 self.writer.add_histogram(name, param, step)
 
-    def log_predictions(self, step=0):
-        plotter = self.specific_tensor_plotter.get("predictions")
-        if plotter and isinstance(plotter, PredictionPlotter):
+    def log_predictions(self, step=0, y_pred=None, y_true=None, idx=None):
+        plotter = self.specific_tensor_plotter.get("predictions")  
+
+        if plotter:
+            plotter.set_y(y_pred, y_true)
+            plotter.set_idx(idx)
             plotter.plot(self.writer, "Predictions", step)
 
     def log_batch_metrics(self, metrics: Dict[str, Tensor], step=0, tag=""):
@@ -95,7 +98,6 @@ class TensorBoardLogger(ModelLogger):
     def log_epoch_metrics(self, metrics: Dict[str, Tensor], step=0, tag=""):
         for k, m in metrics.items():
             self._plot_metric(f"{k.capitalize()}/{tag}/epochwise", k, m, step + 1)
-        self.log_predictions(step + 1)
 
     def save_model(self, step):
         if (step + 1) % self.checkpoint_every == 0 and self.net:

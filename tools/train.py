@@ -42,6 +42,7 @@ def train_eval(net: nn.Module,
                val_dataloader: torch.utils.data.DataLoader,
                metric_collector: MetricCollector,
                logger: ModelLogger,
+               log_params: bool = False,
                device="cpu"):
 
     net.to(device)
@@ -71,7 +72,8 @@ def train_eval(net: nn.Module,
             metrics = metric_collector.aggregate_and_release()
             logger.log_epoch_metrics(metrics, epoch, "train")
 
-            logger.log_params(epoch)
+            if log_params:
+                logger.log_params(epoch)
 
             net.eval()
             with torch.no_grad():
@@ -80,6 +82,8 @@ def train_eval(net: nn.Module,
                     y_pred = net(x_batch)
 
                     step = epoch * len(val_dataloader) + i
+
+                    logger.log_predictions(step, y_pred, y_batch)
 
                     metrics = metric_collector.calculate_metrics(y_pred, y_batch)
                     logger.log_batch_metrics(metrics, step, "val")

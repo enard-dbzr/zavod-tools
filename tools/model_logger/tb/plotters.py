@@ -3,12 +3,12 @@ from typing import Dict, List
 
 import seaborn as sns
 import torch
+from torch.utils.data import DataLoader
 from matplotlib import pyplot as plt
 import matplotlib.ticker as ticker 
 from torch.utils.tensorboard import SummaryWriter
 from matplotlib.colors import LogNorm, NoNorm
 
-from tools.dataset import PEMSDataset
 from tools.preprocessing.scalers import DataUnscaler
 
 class TensorPlotter(abc.ABC):
@@ -95,18 +95,14 @@ class HeatmapPlotter(TensorPlotter):
 class PredictionPlotter(TensorPlotter):
     def __init__(
         self,
-        model: torch.nn.Module,
-        dataset: PEMSDataset,
-        unscaler: DataUnscaler,
-        target_columns: List[str],
+        unscaler: DataUnscaler = None,
         model_output_indices: Dict[str, int] = None,
         max_samples: int = 1000,
-        figsize: tuple = (16, 8),
-        style_dict: Dict = None
+        figsize: tuple = (12, 5),
+        style_dict: Dict = None,
+        batchwise = True
     ):
-        self.dataset = dataset
         self.unscaler = unscaler
-        self.target_columns = target_columns
         self.model_output_indices = model_output_indices or {}
         self.max_samples = max_samples
         self.figsize = figsize
@@ -114,47 +110,51 @@ class PredictionPlotter(TensorPlotter):
             'true': {'color': 'blue', 'linestyle': '-', 'label': 'True'},
             'pred': {'color': 'orange', 'linestyle': '--', 'label': 'Predicted'}
         }
-        self.model = model
+        self.batchwise = batchwise
+        self.y_pred = None
+        self.y_true = None
+        self.val_idx = None
 
     def plot(self, writer: SummaryWriter, title: str, step: int):
-        self.model.eval()
-        device = next(self.model.parameters()).device
+        if self.y_pred is None or self.y_true is None:
+            raise ValueError("Predictions were not set! Use set_y for that purpose!")
+    
+        if self.unscaler:
+            y_true = self.unscaler.unscale(self.y_true)
+            y_pred = self.unscaler.unscale(self.y_pred)
+            
+        fig = self._create_figure(y_true.cpu() , y_pred.cpu())
         
-        x, y_true = self.dataset[0]
+        writer.add_figure(title, fig, step) 
         
-        with torch.no_grad():
-            y_pred = self.model(x.to(device)).cpu()
-
-        y_true_unscaled = self.unscaler.unscale(y_true)
-        y_pred_unscaled = self.unscaler.unscale(y_pred)
-
-        fig = self._create_figure(y_true_unscaled, y_pred_unscaled)
-        writer.add_figure(title, fig, step)
+    def set_y(self, y_pred, y_true):
+        self.y_pred = y_pred
+        self.y_true = y_true
+    
+    def set_idx(self, idx):
+        self.val_idx = idx
 
     def _create_figure(self, y_true: torch.Tensor, y_pred: torch.Tensor):
-        n_targets = len(self.target_columns)
+        n_targets = len(self.model_output_indices)
         fig, axes = plt.subplots(n_targets, 1, figsize=(self.figsize[0], self.figsize[1]*n_targets))
         
         if n_targets == 1:
             axes = [axes]
 
-        for i, ax in enumerate(axes):
-            target_name = self.target_columns[i]
-            output_idx = self.model_output_indices.get(target_name, i)
+        for ax, (target_name, output_idx) in zip(axes, self.model_output_indices.items()):
+            y_true_line = y_true[:self.max_samples, 0, output_idx] if self.batchwise else y_true[0, :self.max_samples, output_idx]
+            y_pred_line = y_pred[:self.max_samples, 0, output_idx] if self.batchwise else y_pred[0, :self.max_samples, output_idx]
             
-            idx = torch.randperm(len(y_true))[:self.max_samples]
-            sorted_idx = idx.sort().values
-
             sns.lineplot(
-                x=sorted_idx.numpy(),
-                y=y_true[sorted_idx, output_idx].numpy(),
+                x=torch.arange(0, len(y_true_line)),
+                y=y_true_line,
                 ax=ax,
                 **self.style_dict['true']
             )
             
             sns.lineplot(
-                x=sorted_idx.numpy(),
-                y=y_pred[sorted_idx, output_idx].numpy(),
+                x=torch.arange(0, len(y_pred_line)),
+                y=y_pred_line,
                 ax=ax,
                 **self.style_dict['pred']
             )
