@@ -17,7 +17,7 @@ class Metric(abc.ABC):
         self.axis = axis and (axis if isinstance(axis, tuple) else (axis,))
 
     @abc.abstractmethod
-    def compute(self, y_pred: torch.Tensor, y_true: torch.Tensor) -> torch.Tensor:
+    def compute(self, y_pred: torch.Tensor, y_true: torch.Tensor, x: torch.Tensor) -> torch.Tensor:
         """Вычисляет значение ошибки для каждого элемента"""
         pass
 
@@ -35,8 +35,8 @@ class Metric(abc.ABC):
         else:
             return self.aggregation_fn(errors)
 
-    def __call__(self, y_pred: torch.Tensor, y_true: torch.Tensor) -> torch.Tensor:
-        errors = self.compute(y_pred, y_true)
+    def __call__(self, y_pred: torch.Tensor, y_true: torch.Tensor, x: torch.Tensor) -> torch.Tensor:
+        errors = self.compute(y_pred, y_true, x)
         return self.aggregate(errors)
 
     def __repr__(self):
@@ -54,10 +54,10 @@ class UnscaledMetric(Metric):
         self.unscaler = unscaler
         self.base_metric = metric
 
-    def compute(self, y_pred: torch.Tensor, y_true: torch.Tensor) -> torch.Tensor:
+    def compute(self, y_pred: torch.Tensor, y_true: torch.Tensor, x: torch.Tensor) -> torch.Tensor:
         y_pred_unscaled = self.unscaler.unscale(y_pred)
         y_true_unscaled = self.unscaler.unscale(y_true)
-        return self.base_metric.compute(y_pred_unscaled, y_true_unscaled)
+        return self.base_metric.compute(y_pred_unscaled, y_true_unscaled, x)
 
     def __repr__(self):
         return f"UnscaledMetric({repr(self.base_metric)})"
@@ -72,9 +72,9 @@ class NanMaskedMetric(Metric):
         super().__init__(aggregation_fn or metric.aggregation_fn, metric.axis)
         self.base_metric = metric
 
-    def compute(self, y_pred: torch.Tensor, y_true: torch.Tensor) -> torch.Tensor:
+    def compute(self, y_pred: torch.Tensor, y_true: torch.Tensor, x: torch.Tensor) -> torch.Tensor:
         mask = ~torch.isnan(y_true)
-        return self.base_metric.compute(y_pred[mask], y_true[mask])
+        return self.base_metric.compute(y_pred[mask], y_true[mask], x)
 
     def __repr__(self):
         return f"NanMaskedMetric({repr(self.base_metric)})"
@@ -91,8 +91,8 @@ class NanWeightedMetric(Metric):
         self.base_metric = metric
         self.weights = weights
 
-    def compute(self, y_pred: torch.Tensor, y_true: torch.Tensor) -> torch.Tensor:
-        errors = self.base_metric.compute(y_pred, y_true)
+    def compute(self, y_pred: torch.Tensor, y_true: torch.Tensor, x: torch.Tensor) -> torch.Tensor:
+        errors = self.base_metric.compute(y_pred, y_true, x)
         weights = self.weights.to(errors.device)
         return errors * weights
 
@@ -105,18 +105,18 @@ class MAPE(Metric):
         super().__init__(aggregation_fn, axis)
         self.epsilon = epsilon
 
-    def compute(self, y_pred: torch.Tensor, y_true: torch.Tensor) -> torch.Tensor:
+    def compute(self, y_pred: torch.Tensor, y_true: torch.Tensor, x: torch.Tensor) -> torch.Tensor:
         safe_y_true = torch.where(y_true == 0, self.epsilon, y_true)
         return torch.abs((y_true - y_pred) / safe_y_true)
 
 
 class MAE(Metric):
-    def compute(self, y_pred: torch.Tensor, y_true: torch.Tensor) -> torch.Tensor:
+    def compute(self, y_pred: torch.Tensor, y_true: torch.Tensor, x: torch.Tensor) -> torch.Tensor:
         return torch.abs(y_true - y_pred)
 
 
 class MSE(Metric):
-    def compute(self, y_pred: torch.Tensor, y_true: torch.Tensor) -> torch.Tensor:
+    def compute(self, y_pred: torch.Tensor, y_true: torch.Tensor, x: torch.Tensor) -> torch.Tensor:
         return (y_true - y_pred) ** 2
 
 
@@ -130,7 +130,7 @@ class MASE(Metric):
         self.epsilon = epsilon
         self.naive_axis = naive_axis
 
-    def compute(self, y_pred: torch.Tensor, y_true: torch.Tensor) -> torch.Tensor:
+    def compute(self, y_pred: torch.Tensor, y_true: torch.Tensor, x: torch.Tensor) -> torch.Tensor:
         naive = torch.nanmean(y_true, dim=self.naive_axis, keepdim=True)
         mae_model = torch.abs(y_true - y_pred)
         mae_naive = torch.abs(y_true - naive)
@@ -138,7 +138,7 @@ class MASE(Metric):
 
 
 class WAPE(Metric):
-    def compute(self, y_pred: torch.Tensor, y_true: torch.Tensor) -> torch.Tensor:
+    def compute(self, y_pred: torch.Tensor, y_true: torch.Tensor, x: torch.Tensor) -> torch.Tensor:
         absolute_error = self.aggregate(torch.abs(y_true - y_pred))
         total_actual = self.aggregate(torch.abs(y_true))
         return absolute_error / (total_actual + 1e-8)
@@ -154,7 +154,7 @@ class RMSSE(Metric):
         self.epsilon = epsilon
         self.naive_axis = naive_axis
 
-    def compute(self, y_pred: torch.Tensor, y_true: torch.Tensor) -> torch.Tensor:
+    def compute(self, y_pred: torch.Tensor, y_true: torch.Tensor, x: torch.Tensor) -> torch.Tensor:
         naive = torch.nanmean(y_true, dim=self.naive_axis, keepdim=True)
         squared_error = (y_true - y_pred) ** 2
         squared_error_naive = (y_true - naive) ** 2
@@ -172,7 +172,7 @@ class PeakDeviation(Metric):
         super().__init__(aggregation_fn, axis)
         self.epsilon = epsilon
 
-    def compute(self, y_pred: torch.Tensor, y_true: torch.Tensor) -> torch.Tensor:
+    def compute(self, y_pred: torch.Tensor, y_true: torch.Tensor, x: torch.Tensor) -> torch.Tensor:
         true = torch.abs(y_true)
         error = torch.abs(y_true - y_pred)
         return (error / (true + self.epsilon)).nan_to_num(0.0)  # Типо избавляемся от nan таким образом
@@ -186,7 +186,7 @@ class RTCS(Metric):
         super().__init__(aggregation_fn, axis)
         self.diff_axis = diff_axis
 
-    def compute(self, y_pred: torch.Tensor, y_true: torch.Tensor) -> torch.Tensor:
+    def compute(self, y_pred: torch.Tensor, y_true: torch.Tensor, x: torch.Tensor) -> torch.Tensor:
         diff_pred = torch.diff(y_pred, dim=self.diff_axis)
         diff_true = torch.diff(y_true, dim=self.diff_axis)
         return (diff_pred ** 2) / (diff_true ** 2 + 1e-8)
@@ -202,7 +202,7 @@ class RED(Metric):
         self.p = p
         self.epsilon = epsilon
 
-    def compute(self, y_pred: torch.Tensor, y_true: torch.Tensor) -> torch.Tensor:
+    def compute(self, y_pred: torch.Tensor, y_true: torch.Tensor, x: torch.Tensor) -> torch.Tensor:
         # Такое вот интересное решение вроде работает с данной метрикой и не искажает ее
         mask = ~torch.isnan(y_true) & ~torch.isnan(y_pred)
 

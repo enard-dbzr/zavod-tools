@@ -4,21 +4,22 @@ import torch
 from torch import nn, Tensor
 from tqdm.notebook import trange, tqdm
 
+from tools.metrics import Metric
 from tools.model_logger.model_logger import ModelLogger
 
 
 class MetricCollector:
-    def __init__(self, metrics, aggregation_fn=None):
+    def __init__(self, metrics: dict[str, Metric], aggregation_fn=None):
         self.metrics = metrics
         self.aggregation_fn = aggregation_fn or (lambda x: torch.nanmean(x, dim=0))
 
         self.collected = {}
         self.aggregate_and_release()
 
-    def calculate_metrics(self, y_pred, y_batch) -> dict[str, Tensor]:
+    def calculate_metrics(self, y_pred, y_batch, x_batch) -> dict[str, Tensor]:
         current = {}
         for k, v in self.metrics.items():
-            m = v(y_pred, y_batch).detach()
+            m = v(y_pred, y_batch, x_batch).detach()
             self.collected[k].append(m)
             current[k] = m
 
@@ -59,14 +60,14 @@ def train_eval(net: nn.Module,
                 x_batch, y_batch = x_batch.to(device), y_batch.to(device)
                 y_pred = net(x_batch)
 
-                loss = criterion(y_pred, y_batch)
+                loss = criterion(y_pred, y_batch, x_batch)
                 if not torch.isnan(loss):
                     loss.backward()
                     optimizer.step()
 
                 step = epoch * len(train_dataloader) + i
 
-                metrics = metric_collector.calculate_metrics(y_pred, y_batch)
+                metrics = metric_collector.calculate_metrics(y_pred, y_batch, x_batch)
                 logger.log_batch_metrics(metrics, step, "train")
 
             metrics = metric_collector.aggregate_and_release()
@@ -85,7 +86,7 @@ def train_eval(net: nn.Module,
 
                     logger.log_predictions(step, y_pred, y_batch)
 
-                    metrics = metric_collector.calculate_metrics(y_pred, y_batch)
+                    metrics = metric_collector.calculate_metrics(y_pred, y_batch, x_batch)
                     logger.log_batch_metrics(metrics, step, "val")
 
             metrics = metric_collector.aggregate_and_release()
