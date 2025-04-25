@@ -1,4 +1,4 @@
-from typing import Callable
+from typing import Callable, Optional
 import warnings
 import numpy as np
 import pandas as pd
@@ -43,31 +43,43 @@ class IQRFilter(Transform):
     Attributes:
         columns: Список колонок для анализа (None = все числовые колонки)
         iqr_multiplier: Множитель для определения границ (по умолчанию 1.5)
+        column_specified_settings: Словарь настроек для колонок
     """
-    def __init__(self, columns: list = None, iqr_multiplier: float = 1.5):
-        self.columns = columns
+    def __init__(self, iqr_multiplier: Optional[float] = 1.5, width=0.5, gap="1min",
+                 column_specified_settings: dict[str, tuple[float, float, str]] = None):
         self.iqr_multiplier = iqr_multiplier
+        self.width = width
+        self.gap = gap
+        self.settings = column_specified_settings or {}
+
+        self.test = None
 
     def __call__(self, x: pd.DataFrame, y: pd.DataFrame, borders) -> tuple[pd.DataFrame, pd.DataFrame]:
-        x_filtered = x.copy()
-        
-        if self.columns is None:
-            self.columns = x.select_dtypes(include=np.number).columns.tolist()
+        df = pd.concat([x, y], axis=1)
+
+        # self.test = df.copy()
             
-        for col in self.columns:
-            if col in x.columns:
-                q1 = x[col].quantile(0.25)
-                q3 = x[col].quantile(0.75)
-                iqr = q3 - q1
+        for col in df.columns:
+            multiplier, width, gap = self.settings.get(col, (self.iqr_multiplier, self.width, self.gap))
+
+            if multiplier is None or width is None:
+                warnings.warn(f"Skipped column {col}")
+                continue
+
+            q1 = df[col].quantile(0.5 - width / 2)
+            q3 = df[col].quantile(0.5 + width / 2)
+            iqr = q3 - q1
+
+            lower_bound = q1 - multiplier * iqr
+            upper_bound = q3 + multiplier * iqr
+
+            mask = (df[col] < lower_bound) | (df[col] > upper_bound)
+            mask = mask.rolling(gap, center=True).max().astype(bool)
+            df.loc[mask, col] = np.nan
+
+            print(f"Removed {mask.sum()} ({mask.sum() / df[col].count() * 100 :.1f}%) values from {col} ")
                 
-                lower_bound = q1 - self.iqr_multiplier * iqr
-                upper_bound = q3 + self.iqr_multiplier * iqr
-                
-                mask = (x[col] >= lower_bound) & (x[col] <= upper_bound)
-                x_filtered = x_filtered[mask]
-                y = y[mask]
-                
-        return x_filtered, y
+        return df.iloc[:, :len(x.columns)], df.iloc[:, len(x.columns):]
 
 
 class ColumnValueFilter(Transform):
