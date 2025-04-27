@@ -111,6 +111,15 @@ class NanWeightedMetric(Metric):
         return errors * weights
 
 
+class ZeroMetric(Metric):
+    """Метрика, независящая от предсказаний"""
+    def __init__(self):
+        super().__init__()
+
+    def compute(self, y_pred: torch.Tensor, y_true: torch.Tensor, x: torch.Tensor) -> torch.Tensor:
+        return y_pred * 0
+
+
 class MAPE(Metric):
     def __init__(self,
                  epsilon: float = 1e-8,
