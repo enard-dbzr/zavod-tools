@@ -4,7 +4,7 @@ import torch
 from torch import nn, Tensor
 from tqdm.notebook import trange, tqdm
 
-from tools.metrics import Metric
+from tools.objectives.metrics import Metric
 from tools.model_logger.model_logger import ModelLogger
 
 

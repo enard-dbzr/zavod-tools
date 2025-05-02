@@ -348,6 +348,7 @@ class KMeansClusterTransform(Transform):
 
     def __call__(self, x: pd.DataFrame, y: pd.DataFrame, borders) -> tuple[pd.DataFrame, pd.DataFrame]:
         interpolated_df = pd.concat(self.interpolator(x, y, borders), axis=1)
+        x = x.copy()
 
         if interpolated_df.isna().values.any():
             raise ValueError("В данных не должно содержаться NaN. Проверь interpolator.")
@@ -360,7 +361,7 @@ class KMeansClusterTransform(Transform):
         # Предсказание кластеров если модель инициализирована
         if self.is_initialized:
             clusters = self.model.predict(interpolated_df.to_numpy())
-            x.loc[:,self.cluster_column] = clusters
+            x.loc[:, self.cluster_column] = clusters
             unique_clusters = len(np.unique(clusters))
             if unique_clusters < self.n_clusters:
                 warnings.warn(
