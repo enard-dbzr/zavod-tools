@@ -1,20 +1,33 @@
 import torch
 
 
-def exponential_aggregation(values: torch.Tensor,
-                            alpha: float = 0.9,
-                            dim: int = 0) -> torch.Tensor:
-    weights = torch.tensor([alpha ** i for i in range(values.shape[dim])],
-                           device=values.device)
-    weights /= weights.sum()
-    return (values * weights.view(-1, 1)).sum(dim=dim)
+class ExponentialAggregation:
+    def __init__(self, alpha: float = 0.9):
+        self.alpha = alpha
+
+    def __call__(self, values: torch.Tensor, dim: int = 0) -> torch.Tensor:
+        size = values.shape[dim]
+        weights = torch.tensor([self.alpha ** i for i in range(size)], device=values.device)
+        weights /= weights.sum()
+        shape = [1] * values.ndim
+        shape[dim] = size
+        weights = weights.view(*shape)
+        return (values * weights).sum(dim=dim)
 
 
-def linear_aggregation(values: torch.Tensor,
-                       dim: int = 0) -> torch.Tensor:
-    weights = torch.linspace(0, 1, values.shape[dim], device=values.device)
-    weights /= weights.sum()
-    return (values * weights.view(-1, 1)).sum(dim=dim)
+class LinearAggregation:
+    def __init__(self):
+        pass
+
+    def __call__(self, values: torch.Tensor, dim: int = 0) -> torch.Tensor:
+        size = values.shape[dim]
+        weights = torch.linspace(0, 1, steps=size, device=values.device)
+        weights /= weights.sum()
+        shape = [1] * values.ndim
+        shape[dim] = size
+        weights = weights.view(*shape)
+        return (values * weights).sum(dim=dim)
+
 
 
 class QuantileAggregation:
