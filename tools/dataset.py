@@ -32,11 +32,17 @@ class PEMSDataset(torch.utils.data.Dataset):
         self.x = df[self.features]
         self.y = df[self.targets]
 
+        self.x_tensor = None
+        self.y_tensor = None
+
         self.independent_borders = [self.x.index.min(), self.x.index.max() + self.x.index[0].resolution]
-        self._cumulative_sizes = None
+
+        self._start_indices = []
 
         if filler is not None:
             self.apply_filler(filler)
+        else:
+            self.update_sizes()
 
     def apply_filler(self, filler: Transform):
         self.x, self.y = filler(self.x, self.y, self.independent_borders)
@@ -62,7 +68,7 @@ class PEMSDataset(torch.utils.data.Dataset):
 
         return splits
 
-    def random_split(self, sizes: list[float], resample="14d", seed=None):
+    def random_split(self, sizes: list[float], resample="14d", seed=None) -> list["PEMSDataset"]:
         borders = torch.tensor([0] + sizes).cumsum(0)
 
         resampled_indices = self.x.resample(resample).indices
@@ -97,39 +103,45 @@ class PEMSDataset(torch.utils.data.Dataset):
         return splits
 
     def update_sizes(self):
-        cur = 0
-        self._cumulative_sizes = [0]
+        self._start_indices = []
+
         for i in range(len(self.independent_borders) - 1):
-            split = self.x.loc[self.independent_borders[i]:
-                               self.independent_borders[i + 1] - self.x.index[0].resolution]
+            start_time = self.independent_borders[i]
+            end_time = self.independent_borders[i + 1]
 
-            cur += (len(split) - self.window_size) // self.stride + 1
-            self._cumulative_sizes.append(cur)
+            start_idx = self.x.index.searchsorted(start_time)
+            end_idx = self.x.index.searchsorted(end_time)
 
-    @cache
+            length = end_idx - start_idx
+            n_windows = (length - self.window_size) // self.stride + 1
+
+            self._start_indices.extend([
+                start_idx + j * self.stride for j in range(n_windows)
+            ])
+
+        self.x_tensor = torch.tensor(self.x.to_numpy(dtype=self.dtype))
+        self.y_tensor = torch.tensor(self.y.to_numpy(dtype=self.dtype))
+
     def get_sample(self, idx):
-        gr_size_index = next((i for i, v in enumerate(self._cumulative_sizes) if v > idx))
-        accum_size = self._cumulative_sizes[gr_size_index - 1]
+        start = self._start_indices[idx]
+        end = start + self.window_size
 
-        idx -= accum_size
+        x_sample = self.x.iloc[start:end]
+        y_sample = self.y.iloc[start:end]
 
-        borders = self.independent_borders + [self.x.index.max()]
-
-        x = self.x.loc[borders[gr_size_index - 1]: borders[gr_size_index]]
-        y = self.y.loc[borders[gr_size_index - 1]: borders[gr_size_index]]
-
-        x_sample: pd.DataFrame = x.iloc[idx * self.stride: idx * self.stride + self.window_size]
-        y_sample: pd.DataFrame = y.iloc[idx * self.stride: idx * self.stride + self.window_size]
-
-        return x_sample, y_sample, self.x.index.get_loc(x_sample.index[0])
+        return x_sample, y_sample, start
 
     def __len__(self):
-        return self._cumulative_sizes[-1]
+        return len(self._start_indices)
 
     def __getitem__(self, idx):
-        x_sample, y_sample, iloc = self.get_sample(idx)
+        start = self._start_indices[idx]
+        end = start + self.window_size
 
-        if self.transform is not None:
-            x_sample, y_sample = self.transform(x_sample, y_sample, borders=[])
+        # TODO: Заменить местный трансформ на другой интерфейс, который будет работать с тензорами
+        # if self.transform is not None:
+        #     x_sample, y_sample = self.transform(x_sample, y_sample, borders=[])
 
-        return x_sample.astype(self.dtype).to_numpy(), y_sample.astype(self.dtype).to_numpy(), iloc
+        x_sample = self.x_tensor[start:end]
+        y_sample = self.y_tensor[start:end]
+        return x_sample, y_sample, start
