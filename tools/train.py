@@ -16,10 +16,10 @@ class MetricCollector:
         self.collected = {}
         self.aggregate_and_release()
 
-    def calculate_metrics(self, y_pred, y_batch, x_batch) -> dict[str, Tensor]:
+    def calculate_metrics(self, y_pred, y_batch, x_batch, iloc) -> dict[str, Tensor]:
         current = {}
         for k, v in self.metrics.items():
-            m = v(y_pred, y_batch, x_batch).detach()
+            m = v(y_pred, y_batch, x_batch, iloc).detach()
             self.collected[k].append(m)
             current[k] = m
 
@@ -37,7 +37,7 @@ class MetricCollector:
 
 def train_eval(net: nn.Module,
                optimizer: torch.optim.Optimizer,
-               criterion: Callable,
+               criterion: Metric,
                num_epochs: int,
                train_dataloader: torch.utils.data.DataLoader,
                val_dataloader: torch.utils.data.DataLoader,
@@ -54,20 +54,20 @@ def train_eval(net: nn.Module,
 
         for epoch in trange(num_epochs, desc="Epoch"):
             net.train()
-            for i, (x_batch, y_batch) in enumerate(tqdm(train_dataloader)):
+            for i, (x_batch, y_batch, iloc) in enumerate(tqdm(train_dataloader)):
                 optimizer.zero_grad()
 
                 x_batch, y_batch = x_batch.to(device), y_batch.to(device)
                 y_pred = net(x_batch)
 
-                loss = criterion(y_pred, y_batch, x_batch)
+                loss = criterion(y_pred, y_batch, x=x_batch, iloc=iloc)
                 if not torch.isnan(loss):
                     loss.backward()
                     optimizer.step()
 
                 step = epoch * len(train_dataloader) + i
 
-                metrics = metric_collector.calculate_metrics(y_pred, y_batch, x_batch)
+                metrics = metric_collector.calculate_metrics(y_pred, y_batch, x_batch, iloc)
                 logger.log_batch_metrics(metrics, step, "train")
 
             metrics = metric_collector.aggregate_and_release()

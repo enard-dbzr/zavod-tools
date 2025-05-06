@@ -121,15 +121,15 @@ class PEMSDataset(torch.utils.data.Dataset):
         x_sample: pd.DataFrame = x.iloc[idx * self.stride: idx * self.stride + self.window_size]
         y_sample: pd.DataFrame = y.iloc[idx * self.stride: idx * self.stride + self.window_size]
 
-        return x_sample, y_sample
+        return x_sample, y_sample, self.x.index.get_loc(x_sample.index[0])
 
     def __len__(self):
         return self._cumulative_sizes[-1]
 
     def __getitem__(self, idx):
-        x_sample, y_sample = self.get_sample(idx)
+        x_sample, y_sample, iloc = self.get_sample(idx)
 
         if self.transform is not None:
-            x_sample, y_sample = self.transform(x_sample, y_sample, [])
+            x_sample, y_sample = self.transform(x_sample, y_sample, borders=[])
 
-        return x_sample.astype(self.dtype).to_numpy(), y_sample.astype(self.dtype).to_numpy()
+        return x_sample.astype(self.dtype).to_numpy(), y_sample.astype(self.dtype).to_numpy(), iloc
