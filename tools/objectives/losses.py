@@ -59,10 +59,12 @@ class NormalizedCovarianceWindowLoss(Metric):
         centered = xy_data - means
         cov = torch.bmm(centered.transpose(1, 2), centered)
 
+        outer_std = outer_std.masked_fill(outer_std == 0, torch.nan)
+
         # d((cov - source_cov) / outer_std)/dcov = 1 / outer_std
-        delta_corr = torch.where(~outer_std.isnan(), (cov - source_cov), torch.zeros_like(cov))  # Маскируем наны от std
-        delta_corr /= outer_std.nan_to_num(1)
-        delta_corr.nan_to_num(0)  # Маскируем наны оставшиеся с вычитания
+        mask = (~outer_std.isnan()) & (~source_cov.isnan())
+        diff = torch.where(mask, cov - source_cov, torch.zeros_like(cov))
+        delta_corr = diff / outer_std.nan_to_num(1.0)
 
         corr_loss = torch.linalg.matrix_norm(delta_corr, dim=(1, 2)).nanmean()
 
