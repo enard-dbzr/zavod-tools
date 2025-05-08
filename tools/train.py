@@ -78,7 +78,7 @@ def train_eval(net: nn.Module,
 
             net.eval()
             with torch.no_grad():
-                for i, (x_batch, y_batch) in enumerate(tqdm(val_dataloader)):
+                for i, (x_batch, y_batch, iloc) in enumerate(tqdm(val_dataloader)):
                     x_batch, y_batch = x_batch.to(device), y_batch.to(device)
                     y_pred = net(x_batch)
 
@@ -86,7 +86,7 @@ def train_eval(net: nn.Module,
 
                     logger.log_predictions(step, y_pred, y_batch)
 
-                    metrics = metric_collector.calculate_metrics(y_pred, y_batch, x_batch)
+                    metrics = metric_collector.calculate_metrics(y_pred, y_batch, x_batch, iloc)
                     logger.log_batch_metrics(metrics, step, "val")
 
             metrics = metric_collector.aggregate_and_release()

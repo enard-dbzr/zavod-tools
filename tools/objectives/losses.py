@@ -13,7 +13,7 @@ class NormalizedCovarianceLoss(Metric):
 
         self.outer_std = torch.outer(std, std).unsqueeze(0)
 
-    def compute(self, y_pred: torch.Tensor, y_true: torch.Tensor, x: torch.Tensor = None, iloc=None) -> torch.Tensor:
+    def compute(self, y_pred: torch.Tensor, y_true: torch.Tensor, x: torch.Tensor, iloc) -> torch.Tensor:
         xy_data = torch.concat([x, y_pred], dim=-1)
 
         means = xy_data.nanmean(dim=1, keepdim=True)
@@ -34,18 +34,19 @@ class NormalizedCovarianceLoss(Metric):
 
 
 class NormalizedCovarianceWindowLoss(Metric):
-    def __init__(self, stats_adapter: Callable[[torch.Tensor], tuple[torch.Tensor, torch.Tensor]],):
+    def __init__(self, cov_adapter: Callable[[torch.Tensor], torch.Tensor], ):
         """
-        stats_adapter должен по батчу индексов возвращать кортеж из двух тензоров: матрицы ковариаций (B, F, F)
-        и дисперсии (B, F)
+        stats_adapter должен по батчу индексов возвращать соответствующие им матрицы ковариаций (B, F, F)
         """
         super().__init__(None)
 
-        self.stats_adapter = stats_adapter
+        self.stats_adapter = cov_adapter
 
-    def compute(self, y_pred: torch.Tensor, y_true: torch.Tensor, x: torch.Tensor = None, iloc=None) -> torch.Tensor:
-        corr_matr, std = self.stats_adapter(iloc)
-        outer_std = std.unsqueeze(2) * std.unsqueeze(1)
+    def compute(self, y_pred: torch.Tensor, y_true: torch.Tensor, x: torch.Tensor, iloc) -> torch.Tensor:
+        source_cov = self.stats_adapter(iloc)
+        source_std = torch.diagonal(source_cov, dim1=1, dim2=2).sqrt()
+
+        outer_std = source_std.unsqueeze(2) * source_std.unsqueeze(1)
 
         xy_data = torch.concat([x, y_pred], dim=-1)
 
@@ -56,13 +57,17 @@ class NormalizedCovarianceWindowLoss(Metric):
         # xy_data = torch.where(xy_data.isnan(), means, xy_data)
 
         centered = xy_data - means
-        corr = torch.bmm(centered.transpose(1, 2), centered) / outer_std
+        cov = torch.bmm(centered.transpose(1, 2), centered)
 
-        delta_corr = (corr - corr_matr)
+        # d((cov - source_cov) / outer_std)/dcov = 1 / outer_std
+        delta_corr = torch.where(~outer_std.isnan(), (cov - source_cov), torch.zeros_like(cov))  # Маскируем наны от std
+        delta_corr /= outer_std.nan_to_num(1)
+        delta_corr.nan_to_num(0)  # Маскируем наны оставшиеся с вычитания
 
         corr_loss = torch.linalg.matrix_norm(delta_corr, dim=(1, 2)).nanmean()
 
         return corr_loss
+
 
 class MomentLoss(Metric):
     def __init__(self, moments=(1, 2), weights=None, central=True):
@@ -76,7 +81,7 @@ class MomentLoss(Metric):
         self.central = central
         self.weights = weights if weights is not None else [1.0] * len(moments)
 
-    def compute(self, y_pred, y_true, x=None, iloc=None):
+    def compute(self, y_pred, y_true, x, iloc):
         loss = 0.0
         for k, w in zip(self.moments, self.weights):
             if self.central and k != 1:
@@ -103,7 +108,7 @@ class RobustHuberCovLoss(Metric):
         self.outer_std = torch.outer(std, std).unsqueeze(0)
         self.delta = delta
 
-    def compute(self, y_pred, y_true, x=None, iloc=None):
+    def compute(self, y_pred, y_true, x, iloc):
         xy_data = torch.cat([x, y_pred], dim=-1)
         means = xy_data.mean(dim=1, keepdim=True)
         centered = xy_data - means
@@ -137,7 +142,7 @@ class TemporalSpectralDivergenceLoss(Metric):
         power = power / (power.sum(dim=2, keepdim=True) + self.eps)  # нормировка на вероятности
         return power
 
-    def compute(self, y_pred, y_true, x=None, iloc=None):
+    def compute(self, y_pred, y_true, x, iloc):
         spec_pred = self._power_spectrum(y_pred)
         spec_true = self._power_spectrum(y_true)
 
