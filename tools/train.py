@@ -35,6 +35,34 @@ class MetricCollector:
         return result
 
 
+class MeanMetricCollector(MetricCollector):
+    def __init__(self, metrics: dict[str, Metric]):
+        super().__init__(metrics)
+
+        self.count = 0
+
+    def calculate_metrics(self, y_pred, y_batch, x_batch, iloc) -> dict[str, Tensor]:
+        current = {}
+        for k, v in self.metrics.items():
+            m = v(y_pred, y_batch, x_batch, iloc).detach()
+            self.collected[k] += m
+            current[k] = m
+
+        self.count += 1
+
+        return current
+
+    def aggregate_and_release(self) -> dict[str, Tensor]:
+        result = {}
+        for k in self.collected:
+            result[k] = self.collected[k] / self.count
+
+        self.collected = {k: 0 for k in self.metrics}
+        self.count = 0
+
+        return result
+
+
 def train_eval(net: nn.Module,
                optimizer: torch.optim.Optimizer,
                criterion: Metric,
