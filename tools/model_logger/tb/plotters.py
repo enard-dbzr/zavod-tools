@@ -122,7 +122,10 @@ class PredictionPlotter(TensorPlotter):
         if self.unscaler:
             y_true = self.unscaler.unscale(self.y_true)
             y_pred = self.unscaler.unscale(self.y_pred)
-            
+        else:
+            y_true = self.y_true
+            y_pred = self.y_pred
+        
         fig = self._create_figure(y_true.cpu() , y_pred.cpu())
         
         writer.add_figure(title, fig, step) 

@@ -13,7 +13,7 @@ from tools.preprocessing.transforms import Transform
 
 
 class PEMSDataset(torch.utils.data.Dataset):
-    def __init__(self, dataset_path, window: int = 60, stride: int = 1,
+    def __init__(self, dataframe: pd.DataFrame, window: int = 60, stride: int = 1,
                  filler: Transform = None, transform: Transform = None,
                  features=None, targets=None, dtype="float32"):
 
@@ -27,10 +27,8 @@ class PEMSDataset(torch.utils.data.Dataset):
 
         self.transform = transform
 
-        df = pd.read_csv(dataset_path, index_col="Time", parse_dates=["Time"])
-
-        self.x = df[self.features]
-        self.y = df[self.targets]
+        self.x = dataframe[self.features]
+        self.y = dataframe[self.targets]
 
         self.x_tensor = None
         self.y_tensor = None
