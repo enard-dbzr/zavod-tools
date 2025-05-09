@@ -65,10 +65,11 @@ def train_eval(net: nn.Module,
                     loss.backward()
                     optimizer.step()
 
-                step = epoch * len(train_dataloader) + i
+                with torch.no_grad():
+                    step = epoch * len(train_dataloader) + i
 
-                metrics = metric_collector.calculate_metrics(y_pred, y_batch, x_batch, iloc)
-                logger.log_batch_metrics(metrics, step, "train")
+                    metrics = metric_collector.calculate_metrics(y_pred, y_batch, x_batch, iloc)
+                    logger.log_batch_metrics(metrics, step, "train")
 
             metrics = metric_collector.aggregate_and_release()
             logger.log_epoch_metrics(metrics, epoch, "train")

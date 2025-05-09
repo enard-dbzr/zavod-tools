@@ -1,6 +1,8 @@
 import torch
 import abc
 from typing import Callable, Optional, Union
+
+from torch import nn
 from torch.utils.data import Dataset, DataLoader
 from tqdm import tqdm
 
@@ -238,6 +240,20 @@ class RED(Metric):
         result = error_norm / (true_norm + self.epsilon)
 
         return result
+
+
+class GradientNorm(Metric):
+    def __init__(self, net: nn.Module):
+        super().__init__(None)
+
+        self.net = net
+
+    def compute(self, y_pred: torch.Tensor, y_true: torch.Tensor, x: torch.Tensor, iloc: torch.Tensor) -> torch.Tensor:
+        total_norm = 0.0
+        for p in self.net.parameters():
+            if p.grad is not None:
+                total_norm += p.grad.data.norm(2) ** 2
+        return total_norm ** 0.5
 
 
 def calculate_metrics(
