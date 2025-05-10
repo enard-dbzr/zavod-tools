@@ -5,11 +5,15 @@ import seaborn as sns
 import torch
 from torch.utils.data import DataLoader
 from matplotlib import pyplot as plt
-import matplotlib.ticker as ticker 
+import matplotlib.ticker as ticker
+import matplotlib
 from torch.utils.tensorboard import SummaryWriter
 from matplotlib.colors import LogNorm, NoNorm
 
 from tools.preprocessing.scalers import DataUnscaler
+
+matplotlib.use('Agg')
+
 
 class TensorPlotter(abc.ABC):
     @abc.abstractmethod
@@ -68,6 +72,7 @@ class BarPlotter(TensorPlotter):
             # ax.set_xticklabels()
 
         writer.add_figure(title, fig, step)
+        plt.close(fig)
 
 
 class HeatmapPlotter(TensorPlotter):
@@ -91,6 +96,8 @@ class HeatmapPlotter(TensorPlotter):
 
         # fig.tight_layout()
         writer.add_figure(title, fig, step)
+        plt.close(fig)
+
 
 class PredictionPlotter(TensorPlotter):
     def __init__(
@@ -128,7 +135,8 @@ class PredictionPlotter(TensorPlotter):
         
         fig = self._create_figure(y_true.cpu() , y_pred.cpu())
         
-        writer.add_figure(title, fig, step) 
+        writer.add_figure(title, fig, step)
+        plt.close(fig)
         
     def set_y(self, y_pred, y_true):
         self.y_pred = y_pred
