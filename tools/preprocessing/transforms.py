@@ -410,3 +410,13 @@ class OneHotEncoderTransform(Transform):
             x = x.drop(columns=[self.column])
 
         return x, y
+
+
+class MakeSnapshotTransform(Transform):
+    def __init__(self):
+        self.snapshots: list[tuple[pd.DataFrame, pd.DataFrame]] = []
+
+    def __call__(self, x: pd.DataFrame, y: pd.DataFrame, borders: list[pd.DatetimeIndex]) -> tuple[
+        pd.DataFrame, pd.DataFrame]:
+        self.snapshots.append((x.copy(), y.copy()))
+        return x, y
