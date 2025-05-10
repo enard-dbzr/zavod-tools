@@ -34,13 +34,14 @@ class NormalizedCovarianceLoss(Metric):
 
 
 class NormalizedCovarianceWindowLoss(Metric):
-    def __init__(self, cov_adapter: Callable[[torch.Tensor], torch.Tensor], ):
+    def __init__(self, cov_adapter: Callable[[torch.Tensor], torch.Tensor], zero_x: bool = True):
         """
         stats_adapter должен по батчу индексов возвращать соответствующие им матрицы ковариаций (B, F, F)
         """
         super().__init__(None)
 
         self.stats_adapter = cov_adapter
+        self.zero_x = zero_x
 
     def compute(self, y_pred: torch.Tensor, y_true: torch.Tensor, x: torch.Tensor, iloc) -> torch.Tensor:
         source_cov = self.stats_adapter(iloc)
@@ -65,6 +66,10 @@ class NormalizedCovarianceWindowLoss(Metric):
         mask = (~outer_std.isnan()) & (~source_cov.isnan())
         diff = torch.where(mask, cov - source_cov, torch.zeros_like(cov))
         delta_corr = diff / outer_std.nan_to_num(1.0)
+
+        if self.zero_x:
+            num_features = x.shape[-1]
+            delta_corr[:, :num_features, :num_features] = 0
 
         corr_loss = torch.linalg.matrix_norm(delta_corr, dim=(1, 2)).nanmean()
 
