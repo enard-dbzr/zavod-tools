@@ -94,8 +94,14 @@ class WeightedMetricsCombination(Metric):
         self.weights = weights
 
     def compute(self, y_pred: torch.Tensor, y_true: torch.Tensor, x: torch.Tensor, iloc) -> torch.Tensor:
+        pass
+
+    def __call__(self, y_pred: Union[torch.Tensor, tuple[torch.Tensor]], y_true: torch.Tensor, x: torch.Tensor,
+                 iloc: torch.Tensor) -> torch.Tensor:
         res = torch.stack([m(y_pred, y_true, x, iloc) for m in self.metrics])
-        return res if self.weights is None else self.weights.broadcast_to(res.shape) * res
+        if self.weights is not None:
+            res = self.weights.broadcast_to(res.shape) * res
+        return self.aggregate(res)
 
 
 class NanWeightedMetric(Metric):
