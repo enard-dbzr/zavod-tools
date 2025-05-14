@@ -92,6 +92,9 @@ class TensorBoardLogger(ModelLogger):
                 self.writer.add_histogram(name, param, step)
 
     def log_predictions(self, step=0, y_pred=None, y_true=None, idx=None):
+        if isinstance(y_pred, tuple):
+            y_pred = y_pred[0]
+
         if self._should_log('predictions', step):
             plotter = self.specific_tensor_plotter.get("predictions")
             if plotter:

@@ -1,7 +1,7 @@
-import torch
 import abc
 from typing import Callable, Optional, Union
 
+import torch
 from torch import nn
 from torch.utils.data import Dataset, DataLoader
 from tqdm import tqdm
@@ -14,8 +14,10 @@ class Metric(abc.ABC):
 
     def __init__(self,
                  aggregation_fn: Optional[Callable] = torch.nanmean,
-                 axis: Optional[int] = None):
+                 axis: Optional[int] = None,
+                 pred_index: int = 0):
         self.aggregation_fn = aggregation_fn
+        self.pred_index = pred_index
         self.axis = axis
         if axis is not None and not isinstance(axis, tuple):
             self.axis = (axis,)
@@ -32,14 +34,19 @@ class Metric(abc.ABC):
         if self.axis is not None:
             dim = [d if d >= 0 else errors.ndim + d for d in self.axis]  # Обработка отрицательных индексов
             keep_dims = [d for d in range(errors.ndim) if d not in dim]  # Измерения, которые остаются
-            flattened = errors.permute(*keep_dims, *dim).flatten(start_dim=len(keep_dims))  # Группируем dim в конец и объединяем
+            flattened = errors.permute(*keep_dims, *dim).flatten(
+                start_dim=len(keep_dims))  # Группируем dim в конец и объединяем
             aggregated = self.aggregation_fn(flattened, dim=-1)
             # FIXME: Very very very fucked
             return aggregated[0] if isinstance(aggregated, tuple) else aggregated
         else:
             return self.aggregation_fn(errors)
 
-    def __call__(self, y_pred: torch.Tensor, y_true: torch.Tensor, x: torch.Tensor, iloc: torch.Tensor) -> torch.Tensor:
+    def __call__(self, y_pred: Union[torch.Tensor, tuple[torch.Tensor]], y_true: torch.Tensor,
+                 x: torch.Tensor, iloc: torch.Tensor) -> torch.Tensor:
+        if isinstance(y_pred, tuple):
+            y_pred = y_pred[self.pred_index]
+
         errors = self.compute(y_pred, y_true, x, iloc)
         return self.aggregate(errors)
 
@@ -50,18 +57,15 @@ class Metric(abc.ABC):
 class UnscaledMetric(Metric):
     """Метрика с преобразованием шкалы"""
 
-    def __init__(self,
-                 unscaler: DataUnscaler,
-                 metric: Metric,
-                 aggregation_fn: Optional[Callable] = None):
-        super().__init__(aggregation_fn or metric.aggregation_fn, metric.axis)
+    def __init__(self, unscaler: DataUnscaler, metric: Metric):
+        super().__init__(None)
         self.unscaler = unscaler
         self.base_metric = metric
 
     def compute(self, y_pred: torch.Tensor, y_true: torch.Tensor, x: torch.Tensor, iloc) -> torch.Tensor:
         y_pred_unscaled = self.unscaler.unscale(y_pred)
         y_true_unscaled = self.unscaler.unscale(y_true)
-        return self.base_metric.compute(y_pred_unscaled, y_true_unscaled, x, iloc)
+        return self.base_metric(y_pred_unscaled, y_true_unscaled, x, iloc)
 
     def __repr__(self):
         return f"UnscaledMetric({repr(self.base_metric)})"
@@ -70,15 +74,13 @@ class UnscaledMetric(Metric):
 class NanMaskedMetric(Metric):
     """Метрика с маскированием NaN значений"""
 
-    def __init__(self,
-                 metric: Metric,
-                 aggregation_fn: Optional[Callable] = None):
-        super().__init__(aggregation_fn or metric.aggregation_fn, metric.axis)
+    def __init__(self, metric: Metric):
+        super().__init__(None)
         self.base_metric = metric
 
     def compute(self, y_pred: torch.Tensor, y_true: torch.Tensor, x: torch.Tensor, iloc) -> torch.Tensor:
         mask = ~torch.isnan(y_true)
-        return self.base_metric.compute(y_pred[mask], y_true[mask], x, iloc)
+        return self.base_metric(y_pred[mask], y_true[mask], x, iloc)
 
     def __repr__(self):
         return f"NanMaskedMetric({repr(self.base_metric)})"
@@ -115,11 +117,26 @@ class NanWeightedMetric(Metric):
 
 class ZeroMetric(Metric):
     """Метрика, независящая от предсказаний"""
+
     def __init__(self):
         super().__init__()
 
     def compute(self, y_pred: torch.Tensor, y_true: torch.Tensor, x: torch.Tensor, iloc) -> torch.Tensor:
         return y_pred * 0
+
+
+class SpecifiedOutputMetric(Metric):
+    """
+    Декоратор, который берет указанный срез (по индексу и направлению) предсказания модели и
+    перенаправляет в другую метрику
+    """
+
+    def __init__(self, metric: Metric, index: int):
+        super().__init__(None, pred_index=index)
+        self.metric = metric
+
+    def compute(self, y_pred: torch.Tensor, y_true: torch.Tensor, x: torch.Tensor, iloc: torch.Tensor) -> torch.Tensor:
+        return self.metric(y_pred, y_true, x, iloc)
 
 
 class MAPE(Metric):
@@ -254,6 +271,12 @@ class GradientNorm(Metric):
             if p.grad is not None:
                 total_norm += p.grad.data.norm(2) ** 2
         return total_norm ** 0.5
+
+
+class PredMetric(Metric):
+    def compute(self, y_pred: torch.Tensor, y_true: torch.Tensor, x: torch.Tensor, iloc: torch.Tensor) -> torch.Tensor:
+        print(y_pred.shape)
+        return y_pred
 
 
 def calculate_metrics(
