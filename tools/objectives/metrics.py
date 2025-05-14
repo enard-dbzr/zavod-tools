@@ -14,18 +14,11 @@ class Metric(abc.ABC):
 
     def __init__(self,
                  aggregation_fn: Optional[Callable] = torch.nanmean,
-                 axis: Optional[int] = None,
-                 pred_index: int = 0):
+                 axis: Union[int, tuple, None] = None):
         self.aggregation_fn = aggregation_fn
-        self.pred_index = pred_index
         self.axis = axis
         if axis is not None and not isinstance(axis, tuple):
             self.axis = (axis,)
-
-    @abc.abstractmethod
-    def compute(self, y_pred: torch.Tensor, y_true: torch.Tensor, x: torch.Tensor, iloc: torch.Tensor) -> torch.Tensor:
-        """Вычисляет значение ошибки для каждого элемента"""
-        pass
 
     def aggregate(self, errors: torch.Tensor) -> torch.Tensor:
         """Агрегирует ошибки с использованием заданной функции"""
@@ -42,22 +35,34 @@ class Metric(abc.ABC):
         else:
             return self.aggregation_fn(errors)
 
+    @abc.abstractmethod
     def __call__(self, y_pred: Union[torch.Tensor, tuple[torch.Tensor]], y_true: torch.Tensor,
                  x: torch.Tensor, iloc: torch.Tensor) -> torch.Tensor:
-        if isinstance(y_pred, tuple):
-            y_pred = y_pred[self.pred_index]
-
-        errors = self.compute(y_pred, y_true, x, iloc)
-        return self.aggregate(errors)
+        pass
 
     def __repr__(self):
         return f"{self.__class__.__name__}(axis={self.axis}, aggregation={self.aggregation_fn.__name__})"
 
 
-class UnscaledMetric(Metric):
+class PredictionBasedMetric(Metric):
+    @abc.abstractmethod
+    def compute(self, y_pred: torch.Tensor, y_true: torch.Tensor, x: torch.Tensor, iloc: torch.Tensor) -> torch.Tensor:
+        """Вычисляет значение ошибки для каждого элемента"""
+        pass
+
+    def __call__(self, y_pred: Union[torch.Tensor, tuple[torch.Tensor]], y_true: torch.Tensor, x: torch.Tensor,
+                 iloc: torch.Tensor) -> torch.Tensor:
+        if isinstance(y_pred, tuple):
+            y_pred = y_pred[0]
+
+        errors = self.compute(y_pred, y_true, x, iloc)
+        return self.aggregate(errors)
+
+
+class UnscaledMetric(PredictionBasedMetric):
     """Метрика с преобразованием шкалы"""
 
-    def __init__(self, unscaler: DataUnscaler, metric: Metric):
+    def __init__(self, unscaler: DataUnscaler, metric: PredictionBasedMetric):
         super().__init__(None)
         self.unscaler = unscaler
         self.base_metric = metric
@@ -71,10 +76,10 @@ class UnscaledMetric(Metric):
         return f"UnscaledMetric({repr(self.base_metric)})"
 
 
-class NanMaskedMetric(Metric):
+class NanMaskedMetric(PredictionBasedMetric):
     """Метрика с маскированием NaN значений"""
 
-    def __init__(self, metric: Metric):
+    def __init__(self, metric: PredictionBasedMetric):
         super().__init__(None)
         self.base_metric = metric
 
@@ -93,9 +98,6 @@ class WeightedMetricsCombination(Metric):
         self.metrics = metrics
         self.weights = weights
 
-    def compute(self, y_pred: torch.Tensor, y_true: torch.Tensor, x: torch.Tensor, iloc) -> torch.Tensor:
-        pass
-
     def __call__(self, y_pred: Union[torch.Tensor, tuple[torch.Tensor]], y_true: torch.Tensor, x: torch.Tensor,
                  iloc: torch.Tensor) -> torch.Tensor:
         res = torch.stack([m(y_pred, y_true, x, iloc) for m in self.metrics])
@@ -104,11 +106,11 @@ class WeightedMetricsCombination(Metric):
         return self.aggregate(res)
 
 
-class NanWeightedMetric(Metric):
+class NanWeightedMetric(PredictionBasedMetric):
     """Метрика с взвешиванием по наличию NaN"""
 
     def __init__(self,
-                 metric: Metric,
+                 metric: PredictionBasedMetric,
                  weights: torch.Tensor,
                  aggregation_fn: Optional[Callable] = None):
         super().__init__(aggregation_fn or metric.aggregation_fn, metric.axis)
@@ -121,7 +123,7 @@ class NanWeightedMetric(Metric):
         return errors * weights
 
 
-class ZeroMetric(Metric):
+class ZeroMetric(PredictionBasedMetric):
     """Метрика, независящая от предсказаний"""
 
     def __init__(self):
@@ -131,21 +133,7 @@ class ZeroMetric(Metric):
         return y_pred * 0
 
 
-class SpecifiedOutputMetric(Metric):
-    """
-    Декоратор, который берет указанный срез (по индексу и направлению) предсказания модели и
-    перенаправляет в другую метрику
-    """
-
-    def __init__(self, metric: Metric, index: int):
-        super().__init__(None, pred_index=index)
-        self.metric = metric
-
-    def compute(self, y_pred: torch.Tensor, y_true: torch.Tensor, x: torch.Tensor, iloc: torch.Tensor) -> torch.Tensor:
-        return self.metric(y_pred, y_true, x, iloc)
-
-
-class MAPE(Metric):
+class MAPE(PredictionBasedMetric):
     def __init__(self,
                  epsilon: float = 1e-8,
                  axis: Optional[int] = None,
@@ -158,17 +146,17 @@ class MAPE(Metric):
         return torch.abs((y_true - y_pred) / safe_y_true)
 
 
-class MAE(Metric):
+class MAE(PredictionBasedMetric):
     def compute(self, y_pred: torch.Tensor, y_true: torch.Tensor, x: torch.Tensor, iloc) -> torch.Tensor:
         return torch.abs(y_true - y_pred)
 
 
-class MSE(Metric):
+class MSE(PredictionBasedMetric):
     def compute(self, y_pred: torch.Tensor, y_true: torch.Tensor, x: torch.Tensor, iloc) -> torch.Tensor:
         return (y_true - y_pred) ** 2
 
 
-class MASE(Metric):
+class MASE(PredictionBasedMetric):
     def __init__(self,
                  epsilon: float = 1e-8,
                  naive_axis: int = -1,
@@ -185,14 +173,14 @@ class MASE(Metric):
         return mae_model / (mae_naive + self.epsilon)
 
 
-class WAPE(Metric):
+class WAPE(PredictionBasedMetric):
     def compute(self, y_pred: torch.Tensor, y_true: torch.Tensor, x: torch.Tensor, iloc) -> torch.Tensor:
         absolute_error = self.aggregate(torch.abs(y_true - y_pred))
         total_actual = self.aggregate(torch.abs(y_true))
         return absolute_error / (total_actual + 1e-8)
 
 
-class RMSSE(Metric):
+class RMSSE(PredictionBasedMetric):
     def __init__(self,
                  epsilon: float = 1e-8,
                  naive_axis: int = -1,
@@ -212,7 +200,7 @@ class RMSSE(Metric):
         return torch.sqrt(super().aggregate(errors))
 
 
-class PeakDeviation(Metric):
+class PeakDeviation(PredictionBasedMetric):
     def __init__(self,
                  epsilon: float = 1e-8,
                  axis: Optional[int] = None,
@@ -226,7 +214,7 @@ class PeakDeviation(Metric):
         return (error / (true + self.epsilon)).nan_to_num(0.0)  # Типо избавляемся от nan таким образом
 
 
-class RTCS(Metric):
+class RTCS(PredictionBasedMetric):
     def __init__(self,
                  axis: Optional[int] = None,
                  diff_axis: Optional[int] = 1,
@@ -240,7 +228,7 @@ class RTCS(Metric):
         return (diff_pred ** 2) / (diff_true ** 2 + 1e-8)
 
 
-class RED(Metric):
+class RED(PredictionBasedMetric):
     def __init__(self,
                  p: int = 2,
                  epsilon: float = 1e-8,
@@ -265,7 +253,7 @@ class RED(Metric):
         return result
 
 
-class GradientNorm(Metric):
+class GradientNorm(PredictionBasedMetric):
     def __init__(self, net: nn.Module):
         super().__init__(None)
 
@@ -279,7 +267,7 @@ class GradientNorm(Metric):
         return total_norm ** 0.5
 
 
-class PredMetric(Metric):
+class PredMetric(PredictionBasedMetric):
     def compute(self, y_pred: torch.Tensor, y_true: torch.Tensor, x: torch.Tensor, iloc: torch.Tensor) -> torch.Tensor:
         print(y_pred.shape)
         return y_pred

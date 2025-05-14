@@ -2,10 +2,10 @@ from typing import Callable
 
 import torch
 
-from tools.objectives.metrics import Metric
+from tools.objectives.metrics import PredictionBasedMetric
 
 
-class NormalizedCovarianceLoss(Metric):
+class NormalizedCovarianceLoss(PredictionBasedMetric):
     def __init__(self, corr_matr: torch.Tensor, std: torch.Tensor):
         super().__init__(None)
 
@@ -33,7 +33,7 @@ class NormalizedCovarianceLoss(Metric):
         return corr_loss
 
 
-class NormalizedCovarianceWindowLoss(Metric):
+class NormalizedCovarianceWindowLoss(PredictionBasedMetric):
     def __init__(self, cov_adapter: Callable[[torch.Tensor], torch.Tensor], zero_x: bool = True):
         """
         stats_adapter должен по батчу индексов возвращать соответствующие им матрицы ковариаций (B, F, F)
@@ -76,7 +76,7 @@ class NormalizedCovarianceWindowLoss(Metric):
         return corr_loss
 
 
-class MomentLoss(Metric):
+class MomentLoss(PredictionBasedMetric):
     def __init__(self, moments=(1, 2), weights=None, central=True):
         """
         moments: tuple из порядков моментов (например, (1, 2, 3))
@@ -103,7 +103,7 @@ class MomentLoss(Metric):
         return loss
 
 
-class RobustHuberCovLoss(Metric):
+class RobustHuberCovLoss(PredictionBasedMetric):
     def __init__(self, corr_target: torch.Tensor, std: torch.Tensor, delta=1.0):
         """
         corr_target: матрица целевой корреляции
@@ -128,7 +128,7 @@ class RobustHuberCovLoss(Metric):
         return loss.mean()
 
 
-class TemporalSpectralDivergenceLoss(Metric):
+class TemporalSpectralDivergenceLoss(PredictionBasedMetric):
     def __init__(self, window_size=32, stride=16, method='kl', eps=1e-8):
         """
         window_size: размер окна БПФ
