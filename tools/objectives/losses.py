@@ -1,8 +1,8 @@
-from typing import Callable
+from typing import Callable, Union
 
 import torch
 
-from tools.objectives.metrics import PredictionBasedMetric
+from tools.objectives.metrics import PredictionBasedMetric, Metric
 
 
 class NormalizedCovarianceLoss(PredictionBasedMetric):
@@ -165,3 +165,16 @@ class TemporalSpectralDivergenceLoss(PredictionBasedMetric):
             raise ValueError("method must be 'kl' or 'bhatt'")
         
         return loss
+
+
+class KlDivergenceToStandard(Metric):
+    def __init__(self, mean_index: int = 1, logvar_index: int = 2):
+        super().__init__()
+        self.mean_index = mean_index
+        self.logvar_index = logvar_index
+
+    def __call__(self, y_pred: Union[torch.Tensor, tuple[torch.Tensor]], y_true: torch.Tensor, x: torch.Tensor,
+                 iloc: torch.Tensor) -> torch.Tensor:
+        mean, logvar = y_pred[self.mean_index], y_pred[self.logvar_index]
+
+        return torch.mean(- 0.5 * torch.sum(1 + logvar - mean.pow(2) - logvar.exp(), dim=1))

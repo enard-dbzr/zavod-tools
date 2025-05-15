@@ -260,7 +260,7 @@ class GradientNorm(PredictionBasedMetric):
         self.net = net
 
     def compute(self, y_pred: torch.Tensor, y_true: torch.Tensor, x: torch.Tensor, iloc: torch.Tensor) -> torch.Tensor:
-        total_norm = 0.0
+        total_norm = torch.tensor(0, dtype=y_pred.dtype)
         for p in self.net.parameters():
             if p.grad is not None:
                 total_norm += p.grad.data.norm(2) ** 2

@@ -15,7 +15,7 @@ from tools.preprocessing.transforms import Transform
 class PEMSDataset(torch.utils.data.Dataset):
     def __init__(self, dataframe: pd.DataFrame, window: int = 60, stride: int = 1,
                  filler: Transform = None, transform: Transform = None,
-                 features=None, targets=None, dtype="float32"):
+                 features=None, targets=None, dtype="float32", target_prefix=""):
 
         self.features = features or FEATURES
         self.targets = targets or TARGETS
@@ -28,7 +28,7 @@ class PEMSDataset(torch.utils.data.Dataset):
         self.transform = transform
 
         self.x = dataframe[self.features]
-        self.y = dataframe[self.targets]
+        self.y = dataframe[self.targets].add_prefix(target_prefix)
 
         self.x_tensor = None
         self.y_tensor = None
