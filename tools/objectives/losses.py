@@ -34,22 +34,31 @@ class NormalizedCovarianceLoss(PredictionBasedMetric):
 
 
 class NormalizedCovarianceWindowLoss(PredictionBasedMetric):
-    def __init__(self, cov_adapter: Callable[[torch.Tensor], torch.Tensor], zero_x: bool = True):
+    def __init__(self, cov_adapter: Callable[[torch.Tensor], torch.Tensor],
+                 vanish_xx: bool = True,
+                 merge_batch_window: bool = False):
         """
         stats_adapter должен по батчу индексов возвращать соответствующие им матрицы ковариаций (B, F, F)
         """
         super().__init__(None)
 
         self.stats_adapter = cov_adapter
-        self.zero_x = zero_x
+        self.vanish_xx = vanish_xx
+        self.merge_batch_window = merge_batch_window
 
     def compute(self, y_pred: torch.Tensor, y_true: torch.Tensor, x: torch.Tensor, iloc) -> torch.Tensor:
-        source_cov = self.stats_adapter(iloc)
-        source_std = torch.diagonal(source_cov, dim1=1, dim2=2).sqrt()
-
-        outer_std = source_std.unsqueeze(2) * source_std.unsqueeze(1)
-
         xy_data = torch.concat([x, y_pred], dim=-1)
+
+        source_cov = self.stats_adapter(iloc)
+
+        if self.merge_batch_window:
+            xy_data = xy_data.view((1, -1, xy_data.shape[-1]))
+
+            # FIXME: все хорошо, но есть нюанс
+            source_cov = source_cov.nanmean(dim=0, keepdim=True)
+
+        source_std = torch.diagonal(source_cov, dim1=1, dim2=2).sqrt()
+        outer_std = source_std.unsqueeze(2) * source_std.unsqueeze(1)
 
         means = xy_data.nanmean(dim=1, keepdim=True)
 
@@ -67,7 +76,7 @@ class NormalizedCovarianceWindowLoss(PredictionBasedMetric):
         diff = torch.where(mask, cov - source_cov, torch.zeros_like(cov))
         delta_corr = diff / outer_std.nan_to_num(1.0)
 
-        if self.zero_x:
+        if self.vanish_xx:
             num_features = x.shape[-1]
             delta_corr[:, :num_features, :num_features] = 0
 
