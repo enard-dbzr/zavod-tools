@@ -41,7 +41,7 @@ class Metric(abc.ABC):
         pass
 
     def __repr__(self):
-        return f"{self.__class__.__name__}(axis={self.axis}, aggregation={self.aggregation_fn.__name__})"
+        return f"{self.__class__.__name__}()"
 
 
 class PredictionBasedMetric(Metric):
