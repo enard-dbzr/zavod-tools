@@ -18,7 +18,7 @@ class NormalizedCovarianceWindowLoss(PredictionBasedMetric):
         :arg vanish_xx: Определяет, будет ли обнуляться срез матрицы, соответсвующий ковариациям X на X.
         :arg merge_batch_window: Объединять размерности батча и окна, для подсчета статистики.
         :arg diag_multiplier: Множитель диагональных элементов матриц.
-        :arg aggregation_fn: Функция агграгации ошибки. По умолчанию среднее H-норм матриц.
+        :arg aggregation_fn: Функция агграгации ошибки. По умолчанию среднее F-норм матриц.
         """
         super().__init__(aggregation_fn, None)
 
