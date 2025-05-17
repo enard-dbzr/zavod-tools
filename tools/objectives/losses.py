@@ -8,15 +8,24 @@ from tools.objectives.metrics import PredictionBasedMetric, Metric
 class NormalizedCovarianceWindowLoss(PredictionBasedMetric):
     def __init__(self, cov_adapter: Callable[[torch.Tensor], torch.Tensor],
                  vanish_xx: bool = True,
-                 merge_batch_window: bool = False):
+                 merge_batch_window: bool = False,
+                 diag_multiplier: float = 1.0,
+                 aggregation_fn=lambda x: torch.linalg.matrix_norm(x, dim=(1, 2)).nanmean()):
         """
-        stats_adapter должен по батчу индексов возвращать соответствующие им матрицы ковариаций (B, F, F)
+        Функция потерь, вычисляющая разность предсказанной и действительной матриц ковариации с нормировкой.
+
+        :arg cov_adapter: Должен по батчу индексов возвращать соответствующие им матрицы ковариаций (B, F, F).
+        :arg vanish_xx: Определяет, будет ли обнуляться срез матрицы, соответсвующий ковариациям X на X.
+        :arg merge_batch_window: Объединять размерности батча и окна, для подсчета статистики.
+        :arg diag_multiplier: Множитель диагональных элементов матриц.
+        :arg aggregation_fn: Функция агграгации ошибки. По умолчанию среднее H-норм матриц.
         """
-        super().__init__(None)
+        super().__init__(aggregation_fn, None)
 
         self.stats_adapter = cov_adapter
         self.vanish_xx = vanish_xx
         self.merge_batch_window = merge_batch_window
+        self.diag_multiplier = diag_multiplier
 
     def compute(self, y_pred: torch.Tensor, y_true: torch.Tensor, x: torch.Tensor, iloc) -> torch.Tensor:
         xy_data = torch.concat([x, y_pred], dim=-1)
@@ -39,7 +48,9 @@ class NormalizedCovarianceWindowLoss(PredictionBasedMetric):
         # xy_data = torch.where(xy_data.isnan(), means, xy_data)
 
         centered = xy_data - means
+        # TODO: optimize calculations and помнимм про возможные наны при нормировке
         cov = torch.bmm(centered.transpose(1, 2), centered)
+        cov /= centered.shape[1]
 
         outer_std = outer_std.masked_fill(outer_std == 0, torch.nan)
 
@@ -48,13 +59,14 @@ class NormalizedCovarianceWindowLoss(PredictionBasedMetric):
         diff = torch.where(mask, cov - source_cov, torch.zeros_like(cov))
         delta_corr = diff / outer_std.nan_to_num(1.0)
 
+        diag_idx = torch.arange(delta_corr.shape[-1])
+        delta_corr[:, diag_idx, diag_idx] *= self.diag_multiplier
+
         if self.vanish_xx:
             num_features = x.shape[-1]
             delta_corr[:, :num_features, :num_features] = 0
 
-        corr_loss = torch.linalg.matrix_norm(delta_corr, dim=(1, 2)).nanmean()
-
-        return corr_loss
+        return delta_corr
 
 
 class MomentLoss(PredictionBasedMetric):
