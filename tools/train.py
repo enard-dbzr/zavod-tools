@@ -72,6 +72,7 @@ def train_eval(net: nn.Module,
                metric_collector: MetricCollector,
                logger: ModelLogger,
                log_params: bool = False,
+               leave_progress_bars=False,
                device="cpu"):
 
     net.to(device)
@@ -82,7 +83,7 @@ def train_eval(net: nn.Module,
 
         for epoch in trange(num_epochs, desc="Epoch"):
             net.train()
-            for i, (x_batch, y_batch, iloc) in enumerate(tqdm(train_dataloader)):
+            for i, (x_batch, y_batch, iloc) in enumerate(tqdm(train_dataloader, leave=leave_progress_bars)):
                 optimizer.zero_grad()
 
                 x_batch, y_batch = x_batch.to(device), y_batch.to(device)
@@ -107,7 +108,7 @@ def train_eval(net: nn.Module,
 
             net.eval()
             with torch.no_grad():
-                for i, (x_batch, y_batch, iloc) in enumerate(tqdm(val_dataloader)):
+                for i, (x_batch, y_batch, iloc) in enumerate(tqdm(val_dataloader, leave=leave_progress_bars)):
                     x_batch, y_batch = x_batch.to(device), y_batch.to(device)
                     y_pred = net(x_batch)
 
