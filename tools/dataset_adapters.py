@@ -12,7 +12,7 @@ class CovarianceDatasetAdapter:
 
         group = df.groupby(pd.Grouper(freq=resample))
 
-        cov = group.cov().to_numpy()
+        cov = group.cov().to_numpy(dtype='float32')
         cov = cov.reshape((-1, cov.shape[-1], cov.shape[-1]))
 
         stat_loc = group.ngroup().to_numpy()

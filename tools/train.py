@@ -76,7 +76,7 @@ def train_eval(net: nn.Module,
 
     net.to(device)
 
-    with logger(net, optimizer, criterion, train_dataloader):
+    with logger(net, optimizer, criterion, train_dataloader, num_epochs):
         logger.log_model()
         logger.log_hparams()
 

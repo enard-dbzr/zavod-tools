@@ -6,7 +6,7 @@ from torch import nn, Tensor
 
 class ModelLogger(abc.ABC):
     @abc.abstractmethod
-    def __call__(self, net: nn.Module, optimizer: torch.optim.Optimizer, criterion, train_dataloader):
+    def __call__(self, net: nn.Module, optimizer: torch.optim.Optimizer, criterion, train_dataloader, num_epochs):
         pass
 
     @abc.abstractmethod

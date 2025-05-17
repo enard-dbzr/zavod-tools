@@ -74,3 +74,26 @@ class RobustScaler(Transform, DataUnscaler):
 
     def unscale(self, x):
         return x * self.t_iqr + self.t_median
+
+
+class FunctionScaler(Transform, DataUnscaler):
+    def __init__(self, f, f_inv=None, device="cpu"):
+        """
+        f: функция для применения к данным (например, torch.log)
+        f_inv: обратная функция (например, torch.exp)
+        """
+        self.f = f
+        self.f_inv = f_inv
+        self.device = device
+
+    def __call__(self, x: pd.DataFrame, y: pd.DataFrame, borders):
+        df = pd.concat([x, y], axis=1)
+        scaled = self.f(torch.tensor(df.to_numpy(dtype='float32'), device=self.device))
+        df = pd.DataFrame(scaled.cpu().numpy(), columns=x.columns.tolist() + y.columns.tolist(), index=df.index)
+
+        return df.iloc[:, :len(x.columns)], df.iloc[:, len(x.columns):]
+
+    def unscale(self, x):
+        if self.f_inv is None:
+            raise NotImplementedError("Обратная функция не задана!")
+        return self.f_inv(x)

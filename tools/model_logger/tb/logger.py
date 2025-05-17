@@ -56,11 +56,12 @@ class TensorBoardLogger(ModelLogger):
         self.criterion = None
         self.train_dataloader: Optional[DataLoader] = None
 
-    def __call__(self, net: nn.Module, optimizer: torch.optim.Optimizer, criterion, train_dataloader):
+    def __call__(self, net: nn.Module, optimizer: torch.optim.Optimizer, criterion, train_dataloader, num_epochs):
         self.net = net
         self.optimizer = optimizer
         self.criterion = criterion
         self.train_dataloader = train_dataloader
+        self.num_epochs = num_epochs
         return self
 
     def __enter__(self):
@@ -112,9 +113,9 @@ class TensorBoardLogger(ModelLogger):
             for k, m in metrics.items():
                 self._plot_metric(f"{k.capitalize()}/{tag}/epochwise", k, m, step + 1)
 
-    def save_model(self, step):
-        if self._should_log('checkpoint', step) and self.net:
-            torch.save(self.net.state_dict(), self.checkpoints_folder / f'epoch_{step}.pth')
+    def save_model(self, epoch):
+        if (self._should_log('checkpoint', epoch) or epoch == self.num_epochs - 1) and self.net:
+            torch.save(self.net.state_dict(), self.checkpoints_folder / f'epoch_{epoch}.pth')
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         if self.writer:
