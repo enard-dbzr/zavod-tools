@@ -10,7 +10,8 @@ class NormalizedCovarianceWindowLoss(PredictionBasedMetric):
                  vanish_xx: bool = True,
                  merge_batch_window: bool = False,
                  diag_multiplier: float = 1.0,
-                 aggregation_fn=lambda x: torch.linalg.matrix_norm(x, dim=(1, 2)).nanmean()):
+                 aggregation_fn=lambda x: torch.linalg.matrix_norm(x, dim=(1, 2)).nanmean(),
+                 center_data: bool = True):
         """
         Функция потерь, вычисляющая разность предсказанной и действительной матриц ковариации с нормировкой.
 
@@ -19,6 +20,7 @@ class NormalizedCovarianceWindowLoss(PredictionBasedMetric):
         :arg merge_batch_window: Объединять размерности батча и окна, для подсчета статистики.
         :arg diag_multiplier: Множитель диагональных элементов матриц.
         :arg aggregation_fn: Функция агграгации ошибки. По умолчанию среднее F-норм матриц.
+        :arg center_data: Параметр, определяющий надо ли центрировать данные.
         """
         super().__init__(aggregation_fn, None)
 
@@ -26,6 +28,7 @@ class NormalizedCovarianceWindowLoss(PredictionBasedMetric):
         self.vanish_xx = vanish_xx
         self.merge_batch_window = merge_batch_window
         self.diag_multiplier = diag_multiplier
+        self.center_data = center_data
 
     def compute(self, y_pred: torch.Tensor, y_true: torch.Tensor, x: torch.Tensor, iloc) -> torch.Tensor:
         xy_data = torch.concat([x, y_pred], dim=-1)
@@ -41,13 +44,13 @@ class NormalizedCovarianceWindowLoss(PredictionBasedMetric):
         source_std = torch.diagonal(source_cov, dim1=1, dim2=2).sqrt()
         outer_std = source_std.unsqueeze(2) * source_std.unsqueeze(1)
 
-        means = xy_data.nanmean(dim=1, keepdim=True)
-
         # # Заменяем NaN на среднее по колонке (вдоль window).
         # # От этого не изменится ковариация, за исключением нормировки на количество
         # xy_data = torch.where(xy_data.isnan(), means, xy_data)
 
-        centered = xy_data - means
+        means = xy_data.nanmean(dim=1, keepdim=True)
+        centered = xy_data - means if self.center_data else xy_data
+
         # TODO: optimize calculations and помнимм про возможные наны при нормировке
         cov = torch.bmm(centered.transpose(1, 2), centered)
         cov /= centered.shape[1]
@@ -166,7 +169,7 @@ class KlDivergenceToStandard(Metric):
         self.mean_index = mean_index
         self.logvar_index = logvar_index
 
-    def __call__(self, y_pred: Union[torch.Tensor, tuple[torch.Tensor]], y_true: torch.Tensor, x: torch.Tensor,
+    def __call__(self, y_pred: Union[torch.Tensor, tuple[torch.Tensor, ...]], y_true: torch.Tensor, x: torch.Tensor,
                  iloc: torch.Tensor) -> torch.Tensor:
         mean, logvar = y_pred[self.mean_index], y_pred[self.logvar_index]
 

@@ -36,7 +36,7 @@ class Metric(abc.ABC):
             return self.aggregation_fn(errors)
 
     @abc.abstractmethod
-    def __call__(self, y_pred: Union[torch.Tensor, tuple[torch.Tensor]], y_true: torch.Tensor,
+    def __call__(self, y_pred: Union[torch.Tensor, tuple[torch.Tensor, ...]], y_true: torch.Tensor,
                  x: torch.Tensor, iloc: torch.Tensor) -> torch.Tensor:
         pass
 
@@ -50,7 +50,7 @@ class PredictionBasedMetric(Metric):
         """Вычисляет значение ошибки для каждого элемента"""
         pass
 
-    def __call__(self, y_pred: Union[torch.Tensor, tuple[torch.Tensor]], y_true: torch.Tensor, x: torch.Tensor,
+    def __call__(self, y_pred: Union[torch.Tensor, tuple[torch.Tensor, ...]], y_true: torch.Tensor, x: torch.Tensor,
                  iloc: torch.Tensor) -> torch.Tensor:
         if isinstance(y_pred, tuple):
             y_pred = y_pred[0]
@@ -98,12 +98,30 @@ class WeightedMetricsCombination(Metric):
         self.metrics = metrics
         self.weights = weights
 
-    def __call__(self, y_pred: Union[torch.Tensor, tuple[torch.Tensor]], y_true: torch.Tensor, x: torch.Tensor,
+    def __call__(self, y_pred: Union[torch.Tensor, tuple[torch.Tensor, ...]], y_true: torch.Tensor, x: torch.Tensor,
                  iloc: torch.Tensor) -> torch.Tensor:
         res = torch.stack([m(y_pred, y_true, x, iloc) for m in self.metrics])
         if self.weights is not None:
             res = self.weights.broadcast_to(res.shape) * res
         return self.aggregate(res)
+
+    def __repr__(self):
+        return f"{self.__class__.__name__}({repr(self.metrics)}, {self.weights})"
+
+
+class PermuteOutputsMetric(Metric):
+    def __init__(self, metric: Metric, positions: tuple[int]):
+        super().__init__(None)
+        self.metric = metric
+        self.positions = positions
+
+    def __call__(self, y_pred: Union[torch.Tensor, tuple[torch.Tensor, ...]], y_true: torch.Tensor, x: torch.Tensor,
+                 iloc: torch.Tensor) -> torch.Tensor:
+        y_pred = tuple(y_pred[pos] for pos in self.positions)
+        return self.metric(y_pred, y_true, x, iloc)
+
+    def __repr__(self):
+        return f"{self.__class__.__name__}({self.metric}, {self.positions})"
 
 
 class NanWeightedMetric(PredictionBasedMetric):
@@ -269,7 +287,6 @@ class GradientNorm(PredictionBasedMetric):
 
 class PredMetric(PredictionBasedMetric):
     def compute(self, y_pred: torch.Tensor, y_true: torch.Tensor, x: torch.Tensor, iloc: torch.Tensor) -> torch.Tensor:
-        print(y_pred.shape)
         return y_pred
 
 
