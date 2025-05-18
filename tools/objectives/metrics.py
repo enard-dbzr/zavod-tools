@@ -124,6 +124,18 @@ class PermuteOutputsMetric(Metric):
         return f"{self.__class__.__name__}({self.metric}, {self.positions})"
 
 
+class OverrideTrueMetric(Metric):
+    def __init__(self, metric: Metric, adapter: Callable[[torch.Tensor], torch.Tensor]):
+        super().__init__()
+        self.metric = metric
+        self.adapter = adapter
+
+    def __call__(self, y_pred: Union[torch.Tensor, tuple[torch.Tensor, ...]], y_true: torch.Tensor, x: torch.Tensor,
+                 iloc: torch.Tensor) -> torch.Tensor:
+        y_true = self.adapter(iloc)
+        return self.metric(y_pred, y_true, x, iloc)
+
+
 class NanWeightedMetric(PredictionBasedMetric):
     """Метрика с взвешиванием по наличию NaN"""
 
