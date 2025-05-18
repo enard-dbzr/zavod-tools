@@ -1,4 +1,4 @@
-from typing import Callable, Optional
+from typing import Callable, Optional, Union
 
 import torch
 from torch import nn, Tensor
@@ -68,12 +68,15 @@ def train_eval(net: nn.Module,
                criterion: Metric,
                num_epochs: int,
                train_dataloader: torch.utils.data.DataLoader,
-               val_dataloader: torch.utils.data.DataLoader,
+               val_dataloaders: Union[torch.utils.data.DataLoader, dict[str, torch.utils.data.DataLoader]],
                metric_collector: MetricCollector,
                logger: ModelLogger,
                log_params: bool = False,
                leave_progress_bars=False,
                device="cpu"):
+
+    if isinstance(val_dataloaders, torch.utils.data.DataLoader):
+        val_dataloaders = {"val": val_dataloaders}
 
     net.to(device)
 
@@ -107,20 +110,22 @@ def train_eval(net: nn.Module,
                 logger.log_params(epoch)
 
             net.eval()
-            with torch.no_grad():
-                for i, (x_batch, y_batch, iloc) in enumerate(tqdm(val_dataloader, leave=leave_progress_bars)):
-                    x_batch, y_batch = x_batch.to(device), y_batch.to(device)
-                    y_pred = net(x_batch)
 
-                    step = epoch * len(val_dataloader) + i
+            for val_name, val_dataloader in val_dataloaders.items():
+                with torch.no_grad():
+                    for i, (x_batch, y_batch, iloc) in enumerate(tqdm(val_dataloader, leave=leave_progress_bars)):
+                        x_batch, y_batch = x_batch.to(device), y_batch.to(device)
+                        y_pred = net(x_batch)
 
-                    logger.log_predictions(step, y_pred, y_batch)
+                        step = epoch * len(val_dataloader) + i
 
-                    metrics = metric_collector.calculate_metrics(y_pred, y_batch, x_batch, iloc)
-                    logger.log_batch_metrics(metrics, step, "val")
+                        logger.log_predictions(step, y_pred, y_batch)
 
-            metrics = metric_collector.aggregate_and_release()
-            logger.log_epoch_metrics(metrics, epoch, "val")
+                        metrics = metric_collector.calculate_metrics(y_pred, y_batch, x_batch, iloc)
+                        logger.log_batch_metrics(metrics, step, val_name)
+
+                metrics = metric_collector.aggregate_and_release()
+                logger.log_epoch_metrics(metrics, epoch, val_name)
 
             logger.save_model(epoch)
 
