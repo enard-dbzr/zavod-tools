@@ -8,6 +8,8 @@ from tools.objectives.metrics import PredictionBasedMetric, Metric
 class NormalizedCovarianceWindowLoss(PredictionBasedMetric):
     def __init__(self, cov_adapter: Callable[[torch.Tensor], torch.Tensor],
                  vanish_xx: bool = True,
+                 vanish_xy = False,
+                 vanish_yy = False,
                  merge_batch_window: bool = False,
                  diag_multiplier: float = 1.0,
                  aggregation_fn=lambda x: torch.linalg.matrix_norm(x, dim=(1, 2)).nanmean(),
@@ -26,6 +28,8 @@ class NormalizedCovarianceWindowLoss(PredictionBasedMetric):
 
         self.stats_adapter = cov_adapter
         self.vanish_xx = vanish_xx
+        self.vanish_yy = vanish_yy
+        self.vanish_xy = vanish_xy
         self.merge_batch_window = merge_batch_window
         self.diag_multiplier = diag_multiplier
         self.center_data = center_data
@@ -61,14 +65,23 @@ class NormalizedCovarianceWindowLoss(PredictionBasedMetric):
         mask = (~outer_std.isnan()) & (~source_cov.isnan())
         diff = torch.where(mask, cov - source_cov, torch.zeros_like(cov))
         delta_corr = diff / outer_std.nan_to_num(1.0)
-
+        
         diag_idx = torch.arange(delta_corr.shape[-1])
         delta_corr[:, diag_idx, diag_idx] *= self.diag_multiplier
 
         if self.vanish_xx:
             num_features = x.shape[-1]
             delta_corr[:, :num_features, :num_features] = 0
+        
+        if self.vanish_yy:
+            num_features = x.shape[-1]
+            delta_corr[:, num_features:, num_features:] = 0
 
+        if self.vanish_xy:
+            num_features = x.shape[-1]
+            delta_corr[:, num_features:, :num_features] = 0
+            delta_corr[:, :num_features, num_features:] = 0
+        
         return delta_corr
 
 

@@ -10,7 +10,7 @@ class CovarianceDatasetAdapter:
 
         df = pd.concat([self.dataset.x, self.dataset.y], axis=1)
 
-        group = df.groupby(pd.Grouper(freq=resample))
+        group = df.groupby(pd.Grouper(freq=resample, closed='left'))
 
         cov = group.cov().to_numpy(dtype='float32')
         cov = cov.reshape((-1, cov.shape[-1], cov.shape[-1]))
@@ -19,6 +19,6 @@ class CovarianceDatasetAdapter:
 
         self.cov = torch.tensor(cov, device=device)
         self.stat_loc = torch.tensor(stat_loc, device=device)
-
+        print(f"Grouped into {len(group)} group(s).")
     def __call__(self, idx: torch.Tensor) -> torch.Tensor:
         return self.cov[self.stat_loc[idx]]
