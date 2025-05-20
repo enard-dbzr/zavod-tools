@@ -124,15 +124,25 @@ class PermuteOutputsMetric(Metric):
         return f"{self.__class__.__name__}({self.metric}, {self.positions})"
 
 
-class OverrideTrueMetric(Metric):
-    def __init__(self, metric: Metric, adapter: Callable[[torch.Tensor], torch.Tensor]):
+class OverrideDataMetric(Metric):
+    def __init__(self, metric: Metric, adapter: Callable[[torch.Tensor], tuple[torch.Tensor, torch.Tensor]], 
+                 override_x: bool = True, override_y: bool = True):
         super().__init__()
         self.metric = metric
         self.adapter = adapter
+        
+        self.override_x = override_x
+        self.override_y = override_y
 
     def __call__(self, y_pred: Union[torch.Tensor, tuple[torch.Tensor, ...]], y_true: torch.Tensor, x: torch.Tensor,
                  iloc: torch.Tensor) -> torch.Tensor:
-        y_true = self.adapter(iloc)
+        o_x, o_y = self.adapter(iloc)
+        
+        if self.override_x:
+            x = o_x
+        if self.override_y:
+            y_true = o_y
+        
         return self.metric(y_pred, y_true, x, iloc)
 
 
