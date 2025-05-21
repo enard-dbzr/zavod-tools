@@ -31,13 +31,14 @@ class CovarianceDatasetAdapter:
     
     
 class GetDatasetItemAdapter:
-    def __init__(self, dataset: PEMSDataset):
+    def __init__(self, dataset: PEMSDataset, device="cpu"):
         self.dataset = dataset
+        self.device = device
         
     def __call__(self, idx: torch.Tensor):
         indices = idx.unsqueeze(1) + torch.arange(self.dataset.window_size)
         
-        x = self.dataset.x_tensor[indices]
-        y = self.dataset.y_tensor[indices]
+        x = self.dataset.x_tensor[indices].to(self.device)
+        y = self.dataset.y_tensor[indices].to(self.device)
         
         return x, y
