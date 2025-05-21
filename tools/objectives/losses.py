@@ -50,16 +50,18 @@ class NormalizedCovarianceWindowLoss(PredictionBasedMetric):
         source_std = torch.diagonal(source_cov, dim1=1, dim2=2).sqrt()
         outer_std = source_std.unsqueeze(2) * source_std.unsqueeze(1)
 
-        # # Заменяем NaN на среднее по колонке (вдоль window).
-        # # От этого не изменится ковариация, за исключением нормировки на количество
-        # xy_data = torch.where(xy_data.isnan(), means, xy_data)
-
         means = xy_data.nanmean(dim=1, keepdim=True)
         centered = xy_data - means if self.center_data else xy_data
+        centered = centered.nan_to_num(0)  # (B, T, F)
 
-        # TODO: optimize calculations and помнимм про возможные наны при нормировке
-        cov = torch.bmm(centered.transpose(1, 2), centered)
-        cov /= centered.shape[1]
+        # Получаем количество пересекающихся попарных измерений
+        nans_mask = xy_data.isnan().type(xy_data.dtype)
+        nans_count = torch.bmm(nans_mask.transpose(1, 2), nans_mask)  # (B, F, F)
+        counts = xy_data.shape[1] - nans_count
+
+        # TODO: optimize calculations
+        cov = torch.bmm(centered.transpose(1, 2), centered)  # (B, F, F)
+        cov /= counts
 
         outer_std = outer_std.masked_fill(outer_std == 0, torch.nan)
 
