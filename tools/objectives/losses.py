@@ -55,9 +55,9 @@ class NormalizedCovarianceWindowLoss(PredictionBasedMetric):
         centered = centered.nan_to_num(0)  # (B, T, F)
 
         # Получаем количество пересекающихся попарных измерений
-        nans_mask = xy_data.isnan().type(xy_data.dtype)
-        nans_count = torch.bmm(nans_mask.transpose(1, 2), nans_mask)  # (B, F, F)
-        counts = xy_data.shape[1] - nans_count
+        values_mask = (~xy_data.isnan()).type(xy_data.dtype)
+        counts = torch.bmm(values_mask.transpose(1, 2), values_mask)  # (B, F, F)
+        # TODO: Добавить нижний предел количества элементов для сравнивания
 
         # TODO: optimize calculations
         cov = torch.bmm(centered.transpose(1, 2), centered)  # (B, F, F)
