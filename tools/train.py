@@ -4,7 +4,7 @@ import torch
 from torch import nn, Tensor
 from tqdm.notebook import trange, tqdm
 
-from tools.objectives.metrics import Metric
+from tools.objectives.metrics import Metric, MetricContext
 from tools.model_logger.model_logger import ModelLogger
 
 
@@ -16,10 +16,12 @@ class MetricCollector:
         self.collected = {}
         self.aggregate_and_release()
 
-    def calculate_metrics(self, y_pred, y_batch, x_batch, iloc) -> dict[str, Tensor]:
+    def calculate_metrics(self, y_pred: torch.Tensor, y_batch: torch.Tensor,
+                          x_batch: torch.Tensor, iloc: torch.Tensor,
+                          dataset, dataloader_tag: str) -> dict[str, Tensor]:
         current = {}
         for k, v in self.metrics.items():
-            m = v(y_pred, y_batch, x_batch, iloc).detach()
+            m = v(y_pred, y_batch, x_batch, MetricContext(iloc, dataset, dataloader_tag)).detach()
             self.collected[k].append(m)
             current[k] = m
 
@@ -31,34 +33,6 @@ class MetricCollector:
             result[k] = self.aggregation_fn(torch.stack(self.collected[k]))
 
         self.collected = {k: [] for k in self.metrics}
-
-        return result
-
-
-class MeanMetricCollector(MetricCollector):
-    def __init__(self, metrics: dict[str, Metric]):
-        super().__init__(metrics)
-
-        self.count = 0
-
-    def calculate_metrics(self, y_pred, y_batch, x_batch, iloc) -> dict[str, Tensor]:
-        current = {}
-        for k, v in self.metrics.items():
-            m = v(y_pred, y_batch, x_batch, iloc).detach()
-            self.collected[k] += m
-            current[k] = m
-
-        self.count += 1
-
-        return current
-
-    def aggregate_and_release(self) -> dict[str, Tensor]:
-        result = {}
-        for k in self.collected:
-            result[k] = self.collected[k] / self.count
-
-        self.collected = {k: 0 for k in self.metrics}
-        self.count = 0
 
         return result
 
@@ -92,7 +66,12 @@ def train_eval(net: nn.Module,
                 x_batch, y_batch = x_batch.to(device), y_batch.to(device)
                 y_pred = net(x_batch)
 
-                loss = criterion(y_pred, y_batch, x=x_batch, iloc=iloc)
+                loss = criterion(y_pred, y_batch, x=x_batch,
+                                 ctx=MetricContext(
+                                     iloc=iloc,
+                                     dataset=train_dataloader.dataset,
+                                     dataloader_tag="train"
+                                 ))
                 if not torch.isnan(loss):
                     loss.backward()
                     optimizer.step()
@@ -100,7 +79,8 @@ def train_eval(net: nn.Module,
                 with torch.no_grad():
                     step = epoch * len(train_dataloader) + i
 
-                    metrics = metric_collector.calculate_metrics(y_pred, y_batch, x_batch, iloc)
+                    metrics = metric_collector.calculate_metrics(y_pred, y_batch, x_batch, iloc,
+                                                                 train_dataloader.dataset, "train")
                     logger.log_batch_metrics(metrics, step, "train")
 
             metrics = metric_collector.aggregate_and_release()
@@ -121,7 +101,8 @@ def train_eval(net: nn.Module,
 
                         logger.log_predictions(step, y_pred, y_batch)
 
-                        metrics = metric_collector.calculate_metrics(y_pred, y_batch, x_batch, iloc)
+                        metrics = metric_collector.calculate_metrics(y_pred, y_batch, x_batch, iloc,
+                                                                     val_dataloader.dataset, val_name)
                         logger.log_batch_metrics(metrics, step, val_name)
 
                 metrics = metric_collector.aggregate_and_release()

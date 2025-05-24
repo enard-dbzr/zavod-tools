@@ -2,14 +2,14 @@ from typing import Callable, Union
 
 import torch
 
-from tools.objectives.metrics import PredictionBasedMetric, Metric
+from tools.objectives.metrics import PredictionBasedMetric, Metric, MetricContext
 
 
 class NormalizedCovarianceWindowLoss(PredictionBasedMetric):
-    def __init__(self, cov_adapter: Callable[[torch.Tensor], torch.Tensor],
+    def __init__(self, cov_adapter: Callable[[MetricContext], torch.Tensor],
                  vanish_xx: bool = True,
-                 vanish_xy = False,
-                 vanish_yy = False,
+                 vanish_xy: bool = False,
+                 vanish_yy: bool = False,
                  merge_batch_window: bool = False,
                  diag_multiplier: float = 1.0,
                  aggregation_fn=lambda x: torch.linalg.matrix_norm(x, dim=(1, 2)).nanmean(),
@@ -36,10 +36,10 @@ class NormalizedCovarianceWindowLoss(PredictionBasedMetric):
         self.diag_multiplier = diag_multiplier
         self.center_data = center_data
 
-    def compute(self, y_pred: torch.Tensor, y_true: torch.Tensor, x: torch.Tensor, iloc) -> torch.Tensor:
+    def compute(self, y_pred: torch.Tensor, y_true: torch.Tensor, x: torch.Tensor, ctx) -> torch.Tensor:
         xy_data = torch.concat([x, y_pred], dim=-1)
 
-        source_cov = self.stats_adapter(iloc)
+        source_cov = self.stats_adapter(ctx)
 
         if self.merge_batch_window:
             xy_data = xy_data.view((1, -1, xy_data.shape[-1]))
@@ -69,14 +69,14 @@ class NormalizedCovarianceWindowLoss(PredictionBasedMetric):
         mask = (~outer_std.isnan()) & (~source_cov.isnan())
         diff = torch.where(mask, cov - source_cov, torch.zeros_like(cov))
         delta_corr = diff / outer_std.nan_to_num(1.0)
-        
+
         diag_idx = torch.arange(delta_corr.shape[-1])
         delta_corr[:, diag_idx, diag_idx] *= self.diag_multiplier
 
         if self.vanish_xx:
             num_features = x.shape[-1]
             delta_corr[:, :num_features, :num_features] = 0
-        
+
         if self.vanish_yy:
             num_features = x.shape[-1]
             delta_corr[:, num_features:, num_features:] = 0
@@ -85,7 +85,7 @@ class NormalizedCovarianceWindowLoss(PredictionBasedMetric):
             num_features = x.shape[-1]
             delta_corr[:, num_features:, :num_features] = 0
             delta_corr[:, :num_features, num_features:] = 0
-        
+
         return delta_corr
 
 
@@ -101,7 +101,7 @@ class MomentLoss(PredictionBasedMetric):
         self.central = central
         self.weights = weights if weights is not None else [1.0] * len(moments)
 
-    def compute(self, y_pred, y_true, x, iloc):
+    def compute(self, y_pred, y_true, x, ctx):
         loss = 0.0
         for k, w in zip(self.moments, self.weights):
             if self.central and k != 1:
@@ -128,7 +128,7 @@ class RobustHuberCovLoss(PredictionBasedMetric):
         self.outer_std = torch.outer(std, std).unsqueeze(0)
         self.delta = delta
 
-    def compute(self, y_pred, y_true, x, iloc):
+    def compute(self, y_pred, y_true, x, ctx):
         xy_data = torch.cat([x, y_pred], dim=-1)
         means = xy_data.mean(dim=1, keepdim=True)
         centered = xy_data - means
@@ -162,7 +162,7 @@ class TemporalSpectralDivergenceLoss(PredictionBasedMetric):
         power = power / (power.sum(dim=2, keepdim=True) + self.eps)  # нормировка на вероятности
         return power
 
-    def compute(self, y_pred, y_true, x, iloc):
+    def compute(self, y_pred, y_true, x, ctx):
         spec_pred = self._power_spectrum(y_pred)
         spec_true = self._power_spectrum(y_true)
 
@@ -176,7 +176,7 @@ class TemporalSpectralDivergenceLoss(PredictionBasedMetric):
             loss = -torch.log(bc + self.eps).mean()
         else:
             raise ValueError("method must be 'kl' or 'bhatt'")
-        
+
         return loss
 
 
@@ -187,7 +187,7 @@ class KlDivergenceToStandard(Metric):
         self.logvar_index = logvar_index
 
     def __call__(self, y_pred: Union[torch.Tensor, tuple[torch.Tensor, ...]], y_true: torch.Tensor, x: torch.Tensor,
-                 iloc: torch.Tensor) -> torch.Tensor:
+                 ctx) -> torch.Tensor:
         mean, logvar = y_pred[self.mean_index], y_pred[self.logvar_index]
 
         return torch.mean(- 0.5 * torch.sum(1 + logvar - mean.pow(2) - logvar.exp(), dim=1))
