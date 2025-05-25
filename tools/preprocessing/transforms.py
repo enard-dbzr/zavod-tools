@@ -456,9 +456,19 @@ class OneHotEncoderTransform(Transform):
 
 
 class MakeSnapshotTransform(Transform):
-    def __init__(self):
-        self.snapshots: list[dict[str, pd.DataFrame]] = []
+    """Сохраняет копию текущих колонок в новую часть."""
+
+    def __init__(self, part_label: str, prefix: str = "snapshot_"):
+        """
+        :param part_label: Название новой части.
+        :param prefix: Префикс колонок в новой части.
+        """
+
+        self.part_label = part_label
+        self.prefix = prefix
 
     def __call__(self, parts, borders):
-        self.snapshots.append(deepcopy(parts))
+        df, *_ = self._merge_parts(parts)
+        parts[self.part_label] = df.copy().add_prefix(self.prefix)
+
         return parts
