@@ -8,8 +8,22 @@ from tools.objectives.metrics import MetricContext
 
 
 class CovarianceDatasetAdapter:
-    def __init__(self, datasets: dict[str, PEMSDataset], resample="100YS", device="cpu"):
+    """
+    Адаптер, получающий матрицы ковариаций cov(XY, XY) датасета по индексам.
+    """
+
+    def __init__(self, datasets: dict[str, PEMSDataset], x_part_label="x", y_part_label="y",
+                 resample="100YS", device="cpu"):
+        """
+        :param datasets: Датасеты с метками.
+        :param x_part_label: Метка части признаков.
+        :param y_part_label: Метка части целевых переменных
+        :param resample: По сегментам какой длинны, будут вычисляться матрицы.
+        :param device: Устройство.
+        """
         self.datasets = datasets
+        self.x_part_label = x_part_label
+        self.y_part_label = y_part_label
         self.resample = resample
         self.device = device
 
@@ -19,7 +33,7 @@ class CovarianceDatasetAdapter:
         self.dataset_stats = {k: self.process_dataset(v) for k, v in self.datasets.items()}
 
     def process_dataset(self, dataset: PEMSDataset):
-        df = pd.concat([dataset.x, dataset.y], axis=1)
+        df = pd.concat([dataset.dfs[self.x_part_label], dataset.dfs[self.y_part_label]], axis=1)
 
         group = df.groupby(pd.Grouper(freq=self.resample, closed="left"))
 
