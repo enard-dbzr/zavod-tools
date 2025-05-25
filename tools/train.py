@@ -1,11 +1,11 @@
-from typing import Callable, Optional, Union
+from typing import Union
 
 import torch
 from torch import nn, Tensor
 from tqdm.notebook import trange, tqdm
 
-from tools.objectives.metrics import Metric, MetricContext
 from tools.model_logger.model_logger import ModelLogger
+from tools.objectives.metrics import Metric, MetricContext
 
 
 class MetricCollector:
@@ -16,12 +16,17 @@ class MetricCollector:
         self.collected = {}
         self.aggregate_and_release()
 
-    def calculate_metrics(self, y_pred: torch.Tensor, y_batch: torch.Tensor,
-                          x_batch: torch.Tensor, iloc: torch.Tensor,
+    def calculate_metrics(self, y_pred: torch.Tensor, batch: dict[str, torch.Tensor],
                           dataset, dataloader_tag: str) -> dict[str, Tensor]:
         current = {}
         for k, v in self.metrics.items():
-            m = v(y_pred, y_batch, x_batch, MetricContext(iloc, dataset, dataloader_tag)).detach()
+            m = v(y_pred, batch["y"], x=batch["x"],
+                  ctx=MetricContext(
+                      iloc=batch["iloc"],
+                      dataset=dataset,
+                      dataloader_tag=dataloader_tag,
+                      extra=batch
+                  )).detach()
             self.collected[k].append(m)
             current[k] = m
 
@@ -48,7 +53,6 @@ def train_eval(net: nn.Module,
                log_params: bool = False,
                leave_progress_bars=False,
                device="cpu"):
-
     if isinstance(val_dataloaders, torch.utils.data.DataLoader):
         val_dataloaders = {"val": val_dataloaders}
 
@@ -60,17 +64,20 @@ def train_eval(net: nn.Module,
 
         for epoch in trange(num_epochs, desc="Epoch"):
             net.train()
-            for i, (x_batch, y_batch, iloc) in enumerate(tqdm(train_dataloader, leave=leave_progress_bars)):
+            for i, batch in enumerate(tqdm(train_dataloader, leave=leave_progress_bars)):
+                batch: dict[str, torch.Tensor]
                 optimizer.zero_grad()
 
-                x_batch, y_batch = x_batch.to(device), y_batch.to(device)
-                y_pred = net(x_batch)
+                batch = {k: v.to(device) for k, v in batch.items()}
 
-                loss = criterion(y_pred, y_batch, x=x_batch,
+                y_pred = net(**batch)
+
+                loss = criterion(y_pred, batch["y"], x=batch["x"],
                                  ctx=MetricContext(
-                                     iloc=iloc,
+                                     iloc=batch["iloc"],
                                      dataset=train_dataloader.dataset,
-                                     dataloader_tag="train"
+                                     dataloader_tag="train",
+                                     extra=batch
                                  ))
                 if not torch.isnan(loss):
                     loss.backward()
@@ -79,7 +86,7 @@ def train_eval(net: nn.Module,
                 with torch.no_grad():
                     step = epoch * len(train_dataloader) + i
 
-                    metrics = metric_collector.calculate_metrics(y_pred, y_batch, x_batch, iloc,
+                    metrics = metric_collector.calculate_metrics(y_pred, batch,
                                                                  train_dataloader.dataset, "train")
                     logger.log_batch_metrics(metrics, step, "train")
 
@@ -93,15 +100,18 @@ def train_eval(net: nn.Module,
 
             for val_name, val_dataloader in val_dataloaders.items():
                 with torch.no_grad():
-                    for i, (x_batch, y_batch, iloc) in enumerate(tqdm(val_dataloader, leave=leave_progress_bars)):
-                        x_batch, y_batch = x_batch.to(device), y_batch.to(device)
-                        y_pred = net(x_batch)
+                    for i, batch in enumerate(tqdm(val_dataloader, leave=leave_progress_bars)):
+                        batch: dict[str, torch.Tensor]
+
+                        batch = {k: v.to(device) for k, v in batch.items()}
+
+                        y_pred = net(**batch)
 
                         step = epoch * len(val_dataloader) + i
 
-                        logger.log_predictions(step, y_pred, y_batch)
+                        logger.log_predictions(step, y_pred, batch["y"])
 
-                        metrics = metric_collector.calculate_metrics(y_pred, y_batch, x_batch, iloc,
+                        metrics = metric_collector.calculate_metrics(y_pred, batch,
                                                                      val_dataloader.dataset, val_name)
                         logger.log_batch_metrics(metrics, step, val_name)
 
@@ -109,42 +119,3 @@ def train_eval(net: nn.Module,
                 logger.log_epoch_metrics(metrics, epoch, val_name)
 
             logger.save_model(epoch)
-
-
-
-# def evaluate(net: nn.Module,
-#              dataloader: torch.utils.data.DataLoader,
-#              metrics: Optional[dict[str, Callable]] = None,
-#              device="cpu",
-#              comment="",
-#              log_tensor_mode="subplots"):
-#     if metrics is None:
-#         metrics = {}
-#
-#     net.to(device)
-#
-#     writer = SummaryWriter(comment=(f"_{comment}_EVAL" if comment else ""))
-#
-#     metric_values = {k: [] for k in metrics}
-#
-#     net.eval()
-#     with torch.no_grad():
-#         for i, (x_batch, y_batch) in enumerate(tqdm(dataloader)):
-#             x_batch, y_batch = x_batch.to(device), y_batch.to(device)
-#             y_pred = net(x_batch)
-#
-#             for k, v in metrics.items():
-#                 m = v(y_pred, y_batch).detach()
-#                 metric_values[k].append(m)
-#
-#                 _log_metric(writer, f"{k.capitalize()}/val", m, step=i, log_tensor_mode=log_tensor_mode)
-#
-#     print(writer.log_dir)
-#     for k in metric_values:
-#         u_metrics = torch.stack(metric_values[k])
-#         m_val = u_metrics.nanmean()
-#         print(f"Mean {k}: {m_val}")
-#
-#     writer.close()
-#
-#     return metric_values

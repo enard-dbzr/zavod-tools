@@ -25,8 +25,8 @@ class NormalScaler(Transform, DataUnscaler):
 
         self.device = device
 
-    def __call__(self, x: pd.DataFrame, y: pd.DataFrame, borders):
-        df = pd.concat([x, y], axis=1)
+    def __call__(self, parts, borders):
+        df, *merge_meta = self._merge_parts(parts)
 
         if self.mu is None:
             self.mu = df.mean()
@@ -40,7 +40,7 @@ class NormalScaler(Transform, DataUnscaler):
 
         df = (df - self.mu) / self.sigma
 
-        return df.iloc[:, :len(x.columns)], df.iloc[:, len(x.columns):]
+        return self._split_parts(df, *merge_meta)
 
     def unscale(self, x):
         return x * self.t_sigma + self.t_mu
@@ -58,8 +58,8 @@ class RobustScaler(Transform, DataUnscaler):
 
         self.device = device
 
-    def __call__(self, x: pd.DataFrame, y: pd.DataFrame, borders):
-        df = pd.concat([x, y], axis=1)
+    def __call__(self, parts, borders):
+        df, *merge_meta = self._merge_parts(parts)
 
         if self.median is None:
             self.median = df.median()
@@ -70,7 +70,7 @@ class RobustScaler(Transform, DataUnscaler):
 
         df = (df - self.median) / self.iqr
 
-        return df.iloc[:, :len(x.columns)], df.iloc[:, len(x.columns):]
+        return self._split_parts(df, *merge_meta)
 
     def unscale(self, x):
         return x * self.t_iqr + self.t_median
@@ -86,12 +86,12 @@ class FunctionScaler(Transform, DataUnscaler):
         self.f_inv = f_inv
         self.device = device
 
-    def __call__(self, x: pd.DataFrame, y: pd.DataFrame, borders):
-        df = pd.concat([x, y], axis=1)
+    def __call__(self, parts, borders):
+        df, *merge_meta = self._merge_parts(parts)
         scaled = self.f(torch.tensor(df.to_numpy(dtype='float32'), device=self.device))
-        df = pd.DataFrame(scaled.cpu().numpy(), columns=x.columns.tolist() + y.columns.tolist(), index=df.index)
+        df = pd.DataFrame(scaled.cpu().numpy(), columns=df.columns.tolist(), index=df.index)
 
-        return df.iloc[:, :len(x.columns)], df.iloc[:, len(x.columns):]
+        return self._split_parts(df, *merge_meta)
 
     def unscale(self, x):
         if self.f_inv is None:

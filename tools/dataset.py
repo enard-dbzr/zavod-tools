@@ -1,6 +1,6 @@
 import abc
 import itertools
-from copy import copy
+from copy import deepcopy
 from functools import cache
 from typing import Callable
 
@@ -14,11 +14,16 @@ from tools.preprocessing.transforms import Transform
 
 class PEMSDataset(torch.utils.data.Dataset):
     def __init__(self, dataframe: pd.DataFrame, window: int = 60, stride: int = 1,
-                 filler: Transform = None, transform: Transform = None,
-                 features=None, targets=None, dtype="float32", target_prefix=""):
+                 parts: dict[str, list[str]] = None, prefixes: dict[str, str] = None,
+                 preprocessor: Transform = None, transform: Transform = None, dtype="float32"):
+        if prefixes is None:
+            prefixes = {}
 
-        self.features = features or FEATURES
-        self.targets = targets or TARGETS
+        self.part_columns = {
+            "x": FEATURES,
+            "y": TARGETS,
+        }
+        self.part_columns.update(parts or {})
 
         self.window_size = window
         self.stride = stride
@@ -27,39 +32,41 @@ class PEMSDataset(torch.utils.data.Dataset):
 
         self.transform = transform
 
-        self.x = dataframe[self.features]
-        self.y = dataframe[self.targets].add_prefix(target_prefix)
+        self.dfs = {part: dataframe[cols].add_prefix(prefixes.get(part, ""))
+                    for part, cols in self.part_columns.items()}
 
-        self.x_tensor = None
-        self.y_tensor = None
+        self.tensors = None
 
-        self.independent_borders = [self.x.index.min(), self.x.index.max() + self.x.index[0].resolution]
+        self.independent_borders = [self.dfs["x"].index.min(),
+                                    self.dfs["x"].index.max() + self.dfs["x"].index[0].resolution]
 
         self._start_indices = []
 
-        if filler is not None:
-            self.apply_filler(filler)
+        if preprocessor is not None:
+            self.apply_preprocessor(preprocessor)
         else:
             self.update_sizes()
 
-    def apply_filler(self, filler: Transform):
-        self.x, self.y = filler(self.x, self.y, self.independent_borders)
+    def apply_preprocessor(self, filler: Transform):
+        self.dfs = filler(self.dfs, self.independent_borders)
 
         self.update_sizes()
 
     def split(self, sizes: list[float]) -> list["PEMSDataset"]:
         borders = torch.tensor([0] + sizes).cumsum(0)
-        original_size = len(self.x)
+        original_size = len(self.dfs["x"])
 
         splits = []
 
         for i in range(len(borders) - 1):
-            split = copy(self)
+            split = deepcopy(self)
 
-            split.x = self.x.iloc[int(original_size * borders[i]): int(original_size * borders[i + 1])].copy()
-            split.y = self.y.iloc[int(original_size * borders[i]): int(original_size * borders[i + 1])].copy()
+            for part in self.dfs:
+                split.dfs[part] = self.dfs[part].iloc[int(original_size * borders[i]):
+                                                      int(original_size * borders[i + 1])].copy()
 
-            split.independent_borders = [split.x.index.min(), split.x.index.max() + split.x.index[0].resolution]
+            split.independent_borders = [split.dfs["x"].index.min(),
+                                         split.dfs["x"].index.max() + split.dfs["x"].index[0].resolution]
             split.update_sizes()
 
             splits.append(split)
@@ -69,7 +76,7 @@ class PEMSDataset(torch.utils.data.Dataset):
     def random_split(self, sizes: list[float], resample="14d", seed=None) -> list["PEMSDataset"]:
         borders = torch.tensor([0] + sizes).cumsum(0)
 
-        resampled_indices = self.x.resample(resample).indices
+        resampled_indices = self.dfs["x"].resample(resample).indices
         resampled_size = len(resampled_indices)
 
         shuffled_indices = np.array(list(resampled_indices.keys()))
@@ -80,7 +87,7 @@ class PEMSDataset(torch.utils.data.Dataset):
         splits = []
 
         for i in range(len(borders) - 1):
-            split = copy(self)
+            split = deepcopy(self)
 
             i_time_split = sorted(shuffled_indices[int(resampled_size * borders[i]): int(resampled_size * borders[i + 1])])
 
@@ -90,10 +97,10 @@ class PEMSDataset(torch.utils.data.Dataset):
                 for j in resampled_indices[i]
             ]
 
-            split.x = self.x.iloc[source_indices].copy()
-            split.y = self.y.iloc[source_indices].copy()
+            for part in self.dfs:
+                split.dfs[part] = self.dfs[part].iloc[source_indices].copy()
 
-            split.independent_borders = i_time_split + [split.x.index.max() + split.x.index[0].resolution]
+            split.independent_borders = i_time_split + [split.dfs["x"].index.max() + split.dfs["x"].index[0].resolution]
             split.update_sizes()
 
             splits.append(split)
@@ -107,8 +114,8 @@ class PEMSDataset(torch.utils.data.Dataset):
             start_time = self.independent_borders[i]
             end_time = self.independent_borders[i + 1]
 
-            start_idx = self.x.index.searchsorted(start_time)
-            end_idx = self.x.index.searchsorted(end_time)
+            start_idx = self.dfs["x"].index.searchsorted(start_time)
+            end_idx = self.dfs["x"].index.searchsorted(end_time)
 
             length = end_idx - start_idx
             n_windows = (length - self.window_size) // self.stride + 1
@@ -117,17 +124,20 @@ class PEMSDataset(torch.utils.data.Dataset):
                 start_idx + j * self.stride for j in range(n_windows)
             ])
 
-        self.x_tensor = torch.tensor(self.x.to_numpy(dtype=self.dtype))
-        self.y_tensor = torch.tensor(self.y.to_numpy(dtype=self.dtype))
+        self.tensors = {part: torch.tensor(df.to_numpy(dtype=self.dtype)) for part, df in self.dfs.items()}
 
     def get_sample(self, idx):
         start = self._start_indices[idx]
         end = start + self.window_size
 
-        x_sample = self.x.iloc[start:end]
-        y_sample = self.y.iloc[start:end]
+        sample = {}
 
-        return x_sample, y_sample, start
+        for part, df in self.dfs.items():
+            sample[part] = df.iloc[start:end]
+
+        sample["iloc"] = start
+
+        return sample
 
     def __len__(self):
         return len(self._start_indices)
@@ -140,6 +150,11 @@ class PEMSDataset(torch.utils.data.Dataset):
         # if self.transform is not None:
         #     x_sample, y_sample = self.transform(x_sample, y_sample, borders=[])
 
-        x_sample = self.x_tensor[start:end]
-        y_sample = self.y_tensor[start:end]
-        return x_sample, y_sample, start
+        sample = {}
+
+        for part, tensor in self.tensors.items():
+            sample[part] = tensor[start:end]
+
+        sample["iloc"] = start
+
+        return sample

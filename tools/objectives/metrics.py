@@ -13,9 +13,10 @@ from tools.preprocessing.scalers import DataUnscaler
 # По-хорошему это косвенно вносит знание о датасете в метрики, но я **** адаптеры выносить из метрик
 @dataclasses.dataclass
 class MetricContext:
-    iloc: torch.Tensor = None
-    dataset: Any = None
-    dataloader_tag: str = None
+    iloc: torch.Tensor
+    dataset: Any
+    dataloader_tag: str
+    extra: dict[str, torch.Tensor]
 
 
 class Metric(abc.ABC):

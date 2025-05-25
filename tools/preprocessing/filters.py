@@ -7,7 +7,16 @@ from tools.preprocessing.transforms import Transform
 
 
 class RangeFileFilter(Transform):
+    """
+    Фильтрует значения по указанному файлу exel.
+    """
+
     def __init__(self, file_paths=None, limits=None):
+        """
+        :param file_paths: Пути до файлов exel структуры.
+        :param limits: Пределы измерений величин для метода фильтрации lim.
+        """
+
         if limits is None:
             limits = {}
         if file_paths is None:
@@ -16,8 +25,8 @@ class RangeFileFilter(Transform):
         self.limits = limits
         self.file_paths = file_paths
 
-    def __call__(self, x: pd.DataFrame, y: pd.DataFrame, borders) -> tuple[pd.DataFrame, pd.DataFrame]:
-        df = pd.concat([x, y], axis=1)
+    def __call__(self, parts, borders):
+        df, *merge_meta = self._merge_parts(parts)
 
         for path in self.file_paths:
             outliers_df = pd.read_excel(path)
@@ -33,20 +42,21 @@ class RangeFileFilter(Transform):
 
         # print((comp != df)[comp.notna()].sum())
 
-        return df.iloc[:, :len(x.columns)], df.iloc[:, len(x.columns):]
+        return self._split_parts(df, *merge_meta)
 
 
 class IQRFilter(Transform):
     """
-    Фильтрует выбросы по межквартильному размаху для указанных колонок.
-    
-    Attributes:
-        columns: Список колонок для анализа (None = все числовые колонки)
-        iqr_multiplier: Множитель для определения границ (по умолчанию 1.5)
-        column_specified_settings: Словарь настроек для колонок
+    Фильтрует выбросы по интерквантильному размаху для указанных колонок.
     """
     def __init__(self, iqr_multiplier: Optional[float] = 1.5, width=0.5, gap="1min",
                  column_specified_settings: dict[str, tuple[float, float, str]] = None):
+        """
+        :param iqr_multiplier: Множитель размаха для определения границ.
+        :param width: Ширина интерквантильного размаха.
+        :param gap: Ширина окрестности для зачистки.
+        :param column_specified_settings: Словарь настроек для колонок.
+        """
         self.iqr_multiplier = iqr_multiplier
         self.width = width
         self.gap = gap
@@ -54,8 +64,8 @@ class IQRFilter(Transform):
 
         self.test = None
 
-    def __call__(self, x: pd.DataFrame, y: pd.DataFrame, borders) -> tuple[pd.DataFrame, pd.DataFrame]:
-        df = pd.concat([x, y], axis=1)
+    def __call__(self, parts, borders):
+        df, *merge_meta = self._merge_parts(parts)
 
         # self.test = df.copy()
             
@@ -79,26 +89,25 @@ class IQRFilter(Transform):
 
             print(f"Removed {mask.sum()} ({mask.sum() / df[col].count() * 100 :.1f}%) values from {col} ")
                 
-        return df.iloc[:, :len(x.columns)], df.iloc[:, len(x.columns):]
+        return self._split_parts(df, *merge_meta)
 
 
 class ColumnValueFilter(Transform):
     """
     Универсальный фильтр данныx.
 
-    Attributes:
-        column_name (str): Колонка для фильтрации
-        exclude_values (list): Значения для исключения
-        include_values (list): Значения для сохранения
-        exclude_indices (list): Индексы для извлечения исключаемых значений
-        include_indices (list): Индексы для извлечения сохраняемых значений
-        mode (str): Режим работы ('exclude', 'include', 'auto')
-        min_count (int): Минимальное количество для авторежима
-        condition (callable): Кастомное условие фильтрации
-        strict_mode (bool): Вызывать ошибку при отсутствии индексов
-        use_latest (bool): Накапливать историю значений из колонки
-        gap (str): Временная окрестность для исключения
-        shift (str): Сдвиг маски
+    :ivar column_name: Колонка для фильтрации.
+    :ivar exclude_values: Значения для исключения.
+    :ivar include_values: Значения для сохранения.
+    :ivar exclude_indices: Индексы для извлечения исключаемых значений.
+    :ivar include_indices: Индексы для извлечения сохраняемых значений.
+    :ivar mode: Режим работы ('exclude', 'include', 'auto').
+    :ivar min_count: Минимальное количество для авторежима.
+    :ivar condition: Кастомное условие фильтрации.
+    :ivar strict_mode: Вызывать ошибку при отсутствии индексов.
+    :ivar use_latest: Накапливать историю значений из колонки.
+    :ivar gap: Временная окрестность для исключения.
+    :ivar shift: Сдвиг маски.
     """
     def __init__(self,
                  column_name: str,
@@ -183,33 +192,34 @@ class ColumnValueFilter(Transform):
         
         return list(set(values))
 
-    def __call__(self, x: pd.DataFrame, y: pd.DataFrame, borders) -> tuple[pd.DataFrame, pd.DataFrame]:
-        if self.column_name not in x.columns:
+    def __call__(self, parts, borders):
+        df, *merge_meta = self._merge_parts(parts)
+
+        if self.column_name not in df.columns:
             raise ValueError(f"Колонка {self.column_name} не найдена")
 
         if self.condition:
-            mask = self.condition(x[self.column_name])
-            return x[mask], y[mask]
+            mask = self.condition(df[self.column_name])
+            return self._split_parts(df[mask], *merge_meta)
 
-        filter_values = self._prepare_filter_values(x)
+        filter_values = self._prepare_filter_values(df)
 
         if self.mode == 'include' or self.include_indices:
-            mask = x[self.column_name].isin(filter_values)
+            mask = df[self.column_name].isin(filter_values)
         else:
-            mask = ~x[self.column_name].isin(filter_values)
+            mask = ~df[self.column_name].isin(filter_values)
 
         mask = mask.rolling(self.gap, center=True).min() == 1
-        mask = mask.shift(freq=self.shift).reindex(x.index, fill_value=True)
+        mask = mask.shift(freq=self.shift).reindex(df.index, fill_value=True)
 
-        filtered_x = x[mask].copy()
-        filtered_y = y[mask].copy()
+        filtered_df = df[mask].copy()
 
-        removed = len(x) - len(filtered_x)
-        remaining = filtered_x[self.column_name].unique()
+        removed = len(df) - len(filtered_df)
+        remaining = filtered_df[self.column_name].unique()
         print(f"Удалено строк: {removed}")
         print(f"Уникальных значений осталось: {remaining}")
 
-        return filtered_x, filtered_y
+        return self._split_parts(filtered_df, *merge_meta)
 
     def reset_accumulated(self):
         """Сброс накопленных данных"""

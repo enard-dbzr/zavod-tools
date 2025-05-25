@@ -1,5 +1,6 @@
 import abc
 import warnings
+from copy import deepcopy
 from typing import Callable, Union
 
 import numpy as np
@@ -10,148 +11,189 @@ from sklearn.cluster import MiniBatchKMeans
 class Transform(abc.ABC):
     """
     Абстрактный базовый класс для преобразований данных.
-    Все наследники должны реализовать метод __call__.
+    Все наследники должны реализовать метод :meth:`Transform.__call__`.
     """
 
     @abc.abstractmethod
-    def __call__(self, x: pd.DataFrame, y: pd.DataFrame, borders: list[pd.DatetimeIndex]) -> tuple[
-        pd.DataFrame, pd.DataFrame]:
+    def __call__(self, parts: dict[str, pd.DataFrame], borders: list[pd.DatetimeIndex]) -> dict[str, pd.DataFrame]:
         """
         Основной метод преобразования данных.
         
-        Args:
-            x: DataFrame с признаками
-            y: DataFrame с целевыми переменными
+        :arg parts: Наборы табличных данных
+        :arg borders: Границы независсимых кусков
             
-        Returns:
-            Кортеж из преобразованных (x, y)
-            :param borders:
+        :return: Преобразовнные наборы табличных данных
         """
         pass
+
+    @classmethod
+    def _merge_parts(cls, parts: dict[str, pd.DataFrame]) -> tuple[pd.DataFrame, list[str], dict[str, int]]:
+        """
+        Объединяет словарь DataFrame'ов в один DataFrame.
+        """
+        keys = list(parts)
+        col_sizes = {k: df.shape[1] for k, df in parts.items()}
+        merged = pd.concat([parts[k] for k in keys], axis=1)
+        return merged, keys, col_sizes
+
+    @classmethod
+    def _split_parts(cls, df: pd.DataFrame, keys: list[str], col_sizes: dict[str, int]) -> dict[str, pd.DataFrame]:
+        """
+        Делит один DataFrame обратно на части по ключам и размерам колонок.
+        """
+        result = {}
+        start = 0
+        for k in keys:
+            end = start + col_sizes[k]
+            result[k] = df.iloc[:, start:end]
+            start = end
+        return result
 
 
 class TransformPipeline(Transform):
     """
     Pipeline для последовательного применения преобразований.
     
-    Attributes:
-        transforms: Последовательность преобразований
+    :ivar transforms: Последовательность трансформаций
     """
 
     def __init__(self, *transforms: Transform):
         self.transforms = transforms
 
-    def __call__(self, x, y, borders):
+    def __call__(self, parts, borders):
         for t in self.transforms:
-            x, y = t(x, y, borders)
+            parts = t(parts, borders)
 
-        return x, y
+        return parts
 
 
 class SpecifiedColumnsTransform(Transform):
     """
     Применяет преобразование только к указанным столбцам.
-    
-    Attributes:
-        transform: Преобразование
-        columns: Список столбцов для обработки
+    НЕ РАБОТАЕТ, если во вложенной трансформации удалять строки, столбцы или части.
+
+    :ivar transform: Преобразование
+    :ivar columns: Список столбцов для обработки
     """
 
     def __init__(self, transform: Transform, columns: list[str]):
         self.transform = transform
         self.columns = columns
 
-    def __call__(self, x, y, borders):
+    def __call__(self, parts, borders):
         """
         Выделяет указанные столбцы из x и y, применяет преобразование
         и объединяет результат обратно в исходные DataFrames.
-        :param borders:
         """
 
-        x_columns = [c for c in x.columns if c in self.columns]
-        y_columns = [c for c in y.columns if c in self.columns]
+        selected_parts = {
+            key: df[df.columns.intersection(self.columns)]
+            for key, df in parts.items()
+        }
 
-        updated_x, updated_y = self.transform(x[x_columns], y[y_columns], borders)
+        updated = self.transform(selected_parts, borders)
 
-        x.loc[updated_x.index, updated_x.columns] = updated_x
-        y.loc[updated_y.index, updated_y.columns] = updated_y
-        return x, y
+        for key, updated_df in updated.items():
+            if key not in parts:
+                parts[key] = updated_df
+                continue
+
+            parts[key].loc[updated_df.index, updated_df.columns] = updated_df
+
+        return parts
 
 
 class FunctionTransform(Transform):
     """
     Преобразование-обёртка для произвольной функции.
-    
-    Attributes:
-        fun: Функция для преобразования (x, y) -> (new_x, new_y)
     """
 
-    def __init__(self, fun: Callable[[pd.DataFrame, pd.DataFrame], tuple[pd.DataFrame, pd.DataFrame]]):
+    def __init__(self, fun: Callable[[dict[str, pd.DataFrame]], dict[str, pd.DataFrame]]):
+        """
+        :arg fun: функция, принимающая именованные части и возвращающая преобразованные.
+        """
         self.fun = fun
 
-    def __call__(self, x, y, borders):
-        return self.fun(x, y)
+    def __call__(self, parts, borders):
+        return self.fun(parts)
 
 
 class UnitedFunctionTransform(Transform):
     """
-    Преобразование, работающее с объединёнными x и y.
-    
-    Attributes:
-        fun: Функция для преобразования объединённого DataFrame (оказывается функция не должна менять порядок или количество столбцов, а то все сломается)
+    Преобразование, работающее с объединёнными частями.
     """
 
     def __init__(self, fun: Callable[[pd.DataFrame], pd.DataFrame]):
+        """
+        :arg fun: Функция для преобразования объединённого DataFrame
+        (оказывается функция не должна менять порядок или количество столбцов, а то все сломается).
+        """
         self.fun = fun
 
-    def __call__(self, x, y, borders):
-        df = pd.concat([x, y], axis=1)
-
+    def __call__(self, parts, borders):
+        df, keys, col_sizes = self._merge_parts(parts)
         df = self.fun(df)
-
-        return df.iloc[:, :len(x.columns)], df.iloc[:, len(x.columns):]
+        return self._split_parts(df, keys, col_sizes)
 
 
 class BordersDependentTransform(Transform):
+    """
+    Применяет преобразование независимо на разных кусках.
+    """
+
     def __init__(self, transform: Transform):
         self.transform = transform
 
-    def __call__(self, x: pd.DataFrame, y: pd.DataFrame, borders: list[pd.DatetimeIndex]) -> tuple[
-        pd.DataFrame, pd.DataFrame]:
-
-        xs = []
-        ys = []
+    def __call__(self, parts, borders: list[pd.DatetimeIndex]):
+        result_parts = {key: [] for key in parts}
 
         for i in range(len(borders) - 1):
-            x_split = x.loc[borders[i]: borders[i + 1] - x.index[0].resolution]
-            y_split = y.loc[borders[i]: borders[i + 1] - y.index[0].resolution]
+            eps = parts["x"].index[0].resolution
 
-            new_x, new_y = self.transform(x_split, y_split, [])
+            split = {
+                key: df.loc[borders[i]: borders[i + 1] - eps] for key, df in parts.items()
+            }
 
-            xs.append(new_x)
-            ys.append(new_y)
+            transformed = self.transform(split, [])
 
-        return pd.concat(xs), pd.concat(ys)
+            for key in transformed:
+                result_parts[key].append(transformed[key])
+
+        return {key: pd.concat(dfs) for key, dfs in result_parts.items()}
 
 
 class AddTimeDelta(Transform):
     """
-    Добавляет дельту - счётчик пропущенных значений для каждого интервала.
+    Добавляет дельту — счётчик пропущенных значений для каждого столбца в каждой части.
     """
+    def __init__(self, part_label: str = None):
+        """
+        :arg part_label: Определяет в какую часть будет сохраняться информация. По умолчанию добавляется в ту же часть.
+        """
 
-    def __call__(self, x, y, borders):
-        x, y = x.copy(), y.copy()
+        self.part_label = part_label
 
-        for col in x.columns:
-            df = x[col]
-            # Группируем по последовательностям не-NaN значений
-            x[f"{col}_delta"] = df.isna().groupby(df.notna().cumsum()).cumsum()
+    def __call__(self, parts: dict[str, pd.DataFrame], borders: list[pd.DatetimeIndex]) -> dict[str, pd.DataFrame]:
+        updated_parts = {}
 
-        for col in y.columns:
-            df = y[col]
-            y[f"{col}_delta"] = df.isna().groupby(df.notna().cumsum()).cumsum()
+        if self.part_label is not None:
+            updated_parts[self.part_label] = parts["x"][[]].copy()
 
-        return x, y
+        for key, df in parts.items():
+            df = df.copy()
+            for col in df.columns:
+                is_na = df[col].isna()
+                groups = df[col].notna().cumsum()
+
+                delta = is_na.groupby(groups).cumsum()
+                if self.part_label is None:
+                    df[f"{col}_delta"] = delta
+                else:
+                    updated_parts[self.part_label][f"{col}_delta"] = delta
+
+            updated_parts[key] = df
+
+        return updated_parts
 
 
 class Filler(Transform):
@@ -266,54 +308,52 @@ class Filler(Transform):
 
         return df
 
-    def __call__(self, x: pd.DataFrame, y: pd.DataFrame, borders) -> tuple[pd.DataFrame, pd.DataFrame]:
-        x, y = x.copy(), y.copy()
+    def __call__(self, parts, borders):
+        transformed = {key: self._apply_filling(df.copy()) for key, df in parts.items()}
 
-        x = self._apply_filling(x)
-        y = self._apply_filling(y)
-
-        return x, y
+        return transformed
 
 
 class Resample(Transform):
     """
     Ресемплирование временного ряда с заданной агрегацией по заданному правилу.
-    
-    Attributes:
-        rule: Правило ресемплирования (например, '10min')
-        aggregation: Функция агрегации данных (mean, max, min, median)
     """
 
     def __init__(self, rule="10min", aggregation='mean'):
+        """
+        :arg rule: Правило ресемплирования (например, '10min')
+        :arg aggregation: Функция агрегации данных (mean, max, min, median)
+        """
         self.rule = rule
         self.aggregation = aggregation
 
-    def __call__(self, x: pd.DataFrame, y: pd.DataFrame, borders) -> tuple[pd.DataFrame, pd.DataFrame]:
-        df = pd.concat([x, y], axis=1)
+    def __call__(self, parts, borders):
+        df, *merge_meta = self._merge_parts(parts)
         df = getattr(df.resample(self.rule), self.aggregation)()
-        return df.iloc[:, :len(x.columns)], df.iloc[:, len(x.columns):]
+        return self._split_parts(df, *merge_meta)
 
 
 class KMeansClusterTransform(Transform):
+    """
+    Кластеризатор точек.
+    """
+
     def __init__(self,
                  n_clusters: int = 8,
-                 include_targets=False,
                  batch_size: int = 30_000,
                  max_buffer_size: int = None,
                  random_state: int = None,
                  cluster_column: str = 'cluster',
                  interpolator: Transform = None):
         """
-        Parameters:
-        n_clusters: количество кластеров
-        batch_size: размер батча для частичного обучения
-        max_buffer_size: максимальный размер буфера для накопления данных
-        interpolator: Трансформ для заполнения нанов. По умолчанию: TransformPipeline(Filler("ffill"), Filler("bfill")).
+        :arg n_clusters: количество кластеров
+        :arg batch_size: размер батча для частичного обучения
+        :arg max_buffer_size: максимальный размер буфера для накопления данных
+        :arg interpolator: Трансформ для заполнения нанов. По умолчанию: TransformPipeline(Filler("ffill"), Filler("bfill")).
         """
         from tools.preprocessing.scalers import NormalScaler
 
         self.n_clusters = n_clusters
-        self.include_targets = include_targets
         self.batch_size = batch_size
         self.max_buffer_size = max_buffer_size
         self.random_state = random_state
@@ -346,9 +386,8 @@ class KMeansClusterTransform(Transform):
             self.model.partial_fit(data)
             self.is_initialized = True
 
-    def __call__(self, x: pd.DataFrame, y: pd.DataFrame, borders) -> tuple[pd.DataFrame, pd.DataFrame]:
-        interpolated_df = pd.concat(self.interpolator(x, y, borders), axis=1)
-        x = x.copy()
+    def __call__(self, parts, borders):
+        interpolated_df, *_ = self._merge_parts(self.interpolator(parts, borders))
 
         if interpolated_df.isna().values.any():
             raise ValueError("В данных не должно содержаться NaN. Проверь interpolator.")
@@ -361,7 +400,7 @@ class KMeansClusterTransform(Transform):
         # Предсказание кластеров если модель инициализирована
         if self.is_initialized:
             clusters = self.model.predict(interpolated_df.to_numpy())
-            x.loc[:, self.cluster_column] = clusters
+            parts["x"].loc[:, self.cluster_column] = clusters
             unique_clusters = len(np.unique(clusters))
             if unique_clusters < self.n_clusters:
                 warnings.warn(
@@ -371,14 +410,14 @@ class KMeansClusterTransform(Transform):
         else:
             pass
 
-        return x, y
+        return parts
 
     def force_fit(self, data: Union[pd.DataFrame, "PEMSDataset"] = None):
         """Принудительное обучение"""
         from tools.dataset import PEMSDataset
         if data is not None:
             if isinstance(data, PEMSDataset):
-                data = data.x
+                data = data.dfs["x"]  # FIXME: брать не только иксы
             self._add_to_buffer(data)
 
         self._partial_fit()
@@ -388,35 +427,38 @@ class KMeansClusterTransform(Transform):
 
 class OneHotEncoderTransform(Transform):
     """
-    Создает one-hot кодирование для указанной колонки.
-    
-    Attributes:
-        column: Название колонки
+    Создает one-hot кодирование для указанной колонки. Работает только по X.
     """
 
     def __init__(self, column: str, drop_original: bool = True, drop_first: bool = True):
+        """
+        :param column: Название колонки.
+        :param drop_original: Удалять ли колонку из которой были получены значения.
+        :param drop_first: Удалять ли первый класс.
+        """
         self.column = column
         self.drop_original = drop_original
         self.drop_first = drop_first
 
-    def __call__(self, x: pd.DataFrame, y: pd.DataFrame, borders) -> tuple[pd.DataFrame, pd.DataFrame]:
-        if self.column not in x.columns:
-            return x, y
+    def __call__(self, parts, borders):
+        # TODO: Реализовать поддержку по любой части, а не только по x.
 
-        dummies = pd.get_dummies(x[self.column], prefix=self.column, drop_first=self.drop_first)
-        x = pd.concat([x, dummies], axis=1)
+        if self.column not in parts["x"]:
+            return parts
+
+        dummies = pd.get_dummies(parts["x"][self.column], prefix=self.column, drop_first=self.drop_first)
+        parts["x"] = pd.concat([parts["x"], dummies], axis=1)
 
         if self.drop_original:
-            x = x.drop(columns=[self.column])
+            parts["x"] = parts["x"].drop(columns=[self.column])
 
-        return x, y
+        return parts
 
 
 class MakeSnapshotTransform(Transform):
     def __init__(self):
-        self.snapshots: list[tuple[pd.DataFrame, pd.DataFrame]] = []
+        self.snapshots: list[dict[str, pd.DataFrame]] = []
 
-    def __call__(self, x: pd.DataFrame, y: pd.DataFrame, borders: list[pd.DatetimeIndex]) -> tuple[
-        pd.DataFrame, pd.DataFrame]:
-        self.snapshots.append((x.copy(), y.copy()))
-        return x, y
+    def __call__(self, parts, borders):
+        self.snapshots.append(deepcopy(parts))
+        return parts

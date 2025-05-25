@@ -9,21 +9,21 @@ from torch.utils.tensorboard import SummaryWriter
 
 from tools.dataset import PEMSDataset
 from tools.model_logger.model_logger import ModelLogger
-from tools.model_logger.tb.plotters import TensorPlotter, BarPlotter, PredictionPlotter
+from tools.model_logger.tb.plotters import TensorPlotter, BarPlotter
 from tools.preprocessing.scalers import DataUnscaler
 
 
 class TensorBoardLogger(ModelLogger):
     def __init__(
-        self,
-        comment: str,
-        log_intervals: Dict[str, int] = None,
-        log_in_epoch: bool = False,
-        default_tensor_plotter: TensorPlotter = None,
-        tensor_plotters: Dict[str, TensorPlotter] = None,
-        val_dataset: Optional[PEMSDataset] = None,
-        unscaler: Optional[DataUnscaler] = None,
-        target_columns: List[str] = None
+            self,
+            comment: str,
+            log_intervals: Dict[str, int] = None,
+            log_in_epoch: bool = False,
+            default_tensor_plotter: TensorPlotter = None,
+            tensor_plotters: Dict[str, TensorPlotter] = None,
+            val_dataset: Optional[PEMSDataset] = None,
+            unscaler: Optional[DataUnscaler] = None,
+            target_columns: List[str] = None
     ):
         if default_tensor_plotter is None:
             default_tensor_plotter = BarPlotter()
@@ -72,14 +72,15 @@ class TensorBoardLogger(ModelLogger):
 
     def log_model(self):
         if self.train_dataloader and self.net:
-            dummy_input = torch.randn(1, *self.train_dataloader.dataset[0][0].shape).to(next(self.net.parameters()).device)
+            dummy_input = torch.randn(1, *self.train_dataloader.dataset[0]["x"].shape).to(
+                next(self.net.parameters()).device)
             self.writer.add_graph(self.net, dummy_input)
 
     def log_hparams(self):
         if self.net and self.train_dataloader and self.optimizer:
             hparams = {
                 "net": repr(self.net),
-                "input_shape": repr(self.train_dataloader.dataset[0][0].shape),
+                "input_shape": repr(self.train_dataloader.dataset[0]["x"].shape),
                 "criterion": repr(self.criterion),
                 "batch_size": self.train_dataloader.batch_size,
                 "optimizer": repr(self.optimizer),
