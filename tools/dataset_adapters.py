@@ -39,9 +39,16 @@ class CovarianceDatasetAdapter:
 
         return cov[stat_loc[ctx.iloc]]
 
-    
+
 class GetDatasetItemAdapter:
+    """
+    .. deprecated::
+        Для подмены данных используйте OverridePartMetric
+    """
     def __init__(self, datasets: dict[str, PEMSDataset], device="cpu"):
+        warnings.warn("Для подмены данных используйте OverridePartMetric",
+                      category=DeprecationWarning, stacklevel=2)
+
         self.datasets = datasets
         self.device = device
         
@@ -54,7 +61,7 @@ class GetDatasetItemAdapter:
 
         indices = idx.unsqueeze(1) + torch.arange(dataset.window_size)
         
-        x = dataset.x_tensor[indices].to(self.device)
-        y = dataset.y_tensor[indices].to(self.device)
+        x = dataset.tensors["x"][indices].to(self.device)
+        y = dataset.tensors["y"][indices].to(self.device)
         
         return x, y

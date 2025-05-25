@@ -1,5 +1,6 @@
 import abc
 import dataclasses
+import warnings
 from typing import Callable, Optional, Union, Any
 
 import torch
@@ -135,8 +136,15 @@ class PermuteOutputsMetric(Metric):
 
 
 class OverrideDataMetric(Metric):
+    """
+    .. deprecated::
+        Для подмены данных используйте OverridePartMetric
+    """
+
     def __init__(self, metric: Metric, adapter: Callable[[MetricContext], tuple[torch.Tensor, torch.Tensor]],
                  override_x: bool = True, override_y: bool = True):
+        warnings.warn("Для подмены данных используйте OverridePartMetric",
+                      category=DeprecationWarning, stacklevel=2)
         super().__init__()
         self.metric = metric
         self.adapter = adapter
@@ -154,6 +162,35 @@ class OverrideDataMetric(Metric):
             y_true = o_y
         
         return self.metric(y_pred, y_true, x, ctx)
+
+
+class OverridePartMetric(Metric):
+    """
+    Заменят указанным образом части данных.
+
+    При словаре замен {"x": "slice", "a": "b"} часть **x** заменится на **slice**, а часть **a** на **b**.
+    В том числе происходят замены аргументных частей y_true и x, как частей с метками x и y.
+    Неуказанные части остаются на своих местах.
+    """
+
+    def __init__(self, metric: Metric, rules: dict[str, str]):
+        """
+        :param metric: Базовая метрика.
+        :param rules: Словарь замен.
+        """
+        super().__init__(None)
+
+        self.metric = metric
+        self.map = rules
+
+    def __call__(self, y_pred: Union[torch.Tensor, tuple[torch.Tensor, ...]], y_true: torch.Tensor, x: torch.Tensor,
+                 ctx: MetricContext) -> torch.Tensor:
+        ctx.extra["x"] = x
+        ctx.extra["y"] = y_true
+
+        ctx.extra = {k: ctx.extra[self.map.get(k, k)] for k in self.map.keys() | ctx.extra.keys()}
+
+        return self.metric(y_pred, ctx.extra["y"], ctx.extra["x"], ctx)
 
 
 class NanWeightedMetric(PredictionBasedMetric):
@@ -319,51 +356,5 @@ class GradientNorm(PredictionBasedMetric):
 
 class PredMetric(PredictionBasedMetric):
     def compute(self, y_pred: torch.Tensor, y_true: torch.Tensor, x: torch.Tensor, ctx) -> torch.Tensor:
-
+        self.test = y_true, x, ctx
         return y_pred
-
-
-def calculate_metrics(
-        data: Union[Dataset, DataLoader],
-        metrics: dict[str, Metric],
-        model: torch.nn.Module,
-        device: str = "cpu",
-        batch_processing: Optional[Callable] = None,
-        batch_size: int = 512,
-        show_progress: bool = True,
-        num_workers: int = 0
-) -> dict[str, float]:
-    model.to(device)
-    model.eval()
-
-    if isinstance(data, Dataset):
-        dataloader = DataLoader(data, batch_size=batch_size,
-                                shuffle=False, num_workers=num_workers)
-    else:
-        dataloader = data
-
-    all_preds = []
-    all_targets = []
-
-    with torch.no_grad():
-        for batch in tqdm(dataloader, desc="Evaluating", disable=not show_progress):
-            batch = [t.to(device) if isinstance(t, torch.Tensor) else t for t in batch]
-
-            if batch_processing:
-                x, y_true = batch_processing(batch)
-            else:
-                x, y_true = batch
-
-            y_pred = model(x)
-
-            all_preds.append(y_pred.cpu())
-            all_targets.append(y_true.cpu())
-
-    all_preds = torch.cat(all_preds)
-    all_targets = torch.cat(all_targets)
-
-    results = {}
-    for name, metric in metrics.items():
-        results[name] = metric(all_preds, all_targets)
-
-    return results
