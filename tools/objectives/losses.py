@@ -13,7 +13,9 @@ class NormalizedCovarianceWindowLoss(PredictionBasedMetric):
                  merge_batch_window: bool = False,
                  diag_multiplier: float = 1.0,
                  aggregation_fn=lambda x: torch.linalg.matrix_norm(x, dim=(1, 2)).nanmean(),
-                 center_data: bool = True):
+                 center_data: bool = True,
+                 min_measures: float = 0.0,
+                 diff_mask_value: float = 0.0,):
         """
         Функция потерь, вычисляющая разность предсказанной и действительной матриц ковариации с нормировкой.
 
@@ -25,6 +27,8 @@ class NormalizedCovarianceWindowLoss(PredictionBasedMetric):
         :arg diag_multiplier: Множитель диагональных элементов матриц.
         :arg aggregation_fn: Функция агрегации ошибки. По умолчанию среднее F-норм матриц.
         :arg center_data: Параметр, определяющий надо ли центрировать данные.
+        :arg min_measures: Минимальное количество попарных измерений для участия в матрице разниц.
+        :arg diff_mask_value: Значение, которое будет использоваться для маскировки по NaN и недостатку элементов.
         """
         super().__init__(aggregation_fn, None)
 
@@ -35,6 +39,8 @@ class NormalizedCovarianceWindowLoss(PredictionBasedMetric):
         self.merge_batch_window = merge_batch_window
         self.diag_multiplier = diag_multiplier
         self.center_data = center_data
+        self.min_measures = min_measures
+        self.diff_mask_value = diff_mask_value
 
     def compute(self, y_pred: torch.Tensor, y_true: torch.Tensor, x: torch.Tensor, ctx) -> torch.Tensor:
         xy_data = torch.concat([x, y_pred], dim=-1)
@@ -57,7 +63,7 @@ class NormalizedCovarianceWindowLoss(PredictionBasedMetric):
         # Получаем количество пересекающихся попарных измерений
         values_mask = (~xy_data.isnan()).type(xy_data.dtype)
         counts = torch.bmm(values_mask.transpose(1, 2), values_mask)  # (B, F, F)
-        # TODO: Добавить нижний предел количества элементов для сравнивания
+        counts_mask = (counts >= self.min_measures)
 
         # TODO: optimize calculations
         cov = torch.bmm(centered.transpose(1, 2), centered)  # (B, F, F)
@@ -66,8 +72,8 @@ class NormalizedCovarianceWindowLoss(PredictionBasedMetric):
         outer_std = outer_std.masked_fill(outer_std == 0, torch.nan)
 
         # d((cov - source_cov) / outer_std)/dcov = 1 / outer_std
-        mask = (~outer_std.isnan()) & (~source_cov.isnan())
-        diff = torch.where(mask, cov - source_cov, torch.zeros_like(cov))
+        mask = (~outer_std.isnan()) & (~source_cov.isnan()) & counts_mask
+        diff = torch.where(mask, cov - source_cov, self.diff_mask_value)
         delta_corr = diff / outer_std.nan_to_num(1.0)
 
         diag_idx = torch.arange(delta_corr.shape[-1])
