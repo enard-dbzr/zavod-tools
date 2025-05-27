@@ -22,9 +22,13 @@ class TensorPlotter(abc.ABC):
 
 
 class MultiplePlotter(TensorPlotter):
+    def __init__(self, labels: list[str] = None):
+        self.labels = labels
+
     def plot(self, writer: SummaryWriter, title: str, m: torch.Tensor, step):
         for im, vm in enumerate(m):
-            writer.add_scalar(f"{title}/target_{im}", vm, step)
+            tag = f"{title}/target_{im}" if self.labels is None else f"{title}/target_{self.labels[im]}"
+            writer.add_scalar(tag, vm, step)
 
 
 class ScalarsPlotter(TensorPlotter):

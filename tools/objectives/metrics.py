@@ -223,7 +223,7 @@ class ZeroMetric(PredictionBasedMetric):
 class MAPE(PredictionBasedMetric):
     def __init__(self,
                  epsilon: float = 1e-8,
-                 axis: Optional[int] = None,
+                 axis = None,
                  aggregation_fn: Callable = torch.nanmean):
         super().__init__(aggregation_fn, axis)
         self.epsilon = epsilon
@@ -247,7 +247,7 @@ class MASE(PredictionBasedMetric):
     def __init__(self,
                  epsilon: float = 1e-8,
                  naive_axis: int = -1,
-                 axis: Optional[int] = None,
+                 axis = None,
                  aggregation_fn: Callable = torch.nanmean):
         super().__init__(aggregation_fn, axis)
         self.epsilon = epsilon
@@ -271,7 +271,7 @@ class RMSSE(PredictionBasedMetric):
     def __init__(self,
                  epsilon: float = 1e-8,
                  naive_axis: int = -1,
-                 axis: Optional[int] = None,
+                 axis = None,
                  aggregation_fn: Callable = torch.nanmean):
         super().__init__(aggregation_fn, axis)
         self.epsilon = epsilon
@@ -290,7 +290,7 @@ class RMSSE(PredictionBasedMetric):
 class PeakDeviation(PredictionBasedMetric):
     def __init__(self,
                  epsilon: float = 1e-8,
-                 axis: Optional[int] = None,
+                 axis = None,
                  aggregation_fn: Callable = torch.max):
         super().__init__(aggregation_fn, axis)
         self.epsilon = epsilon
@@ -303,7 +303,7 @@ class PeakDeviation(PredictionBasedMetric):
 
 class RTCS(PredictionBasedMetric):
     def __init__(self,
-                 axis: Optional[int] = None,
+                 axis = None,
                  diff_axis: Optional[int] = 1,
                  aggregation_fn: Callable = torch.nanmean):
         super().__init__(aggregation_fn, axis)
@@ -319,7 +319,7 @@ class RED(PredictionBasedMetric):
     def __init__(self,
                  p: int = 2,
                  epsilon: float = 1e-8,
-                 axis: Optional[int] = None,
+                 axis = None,
                  aggregation_fn: Callable = torch.nanmean):
         super().__init__(aggregation_fn, axis)
         self.p = p

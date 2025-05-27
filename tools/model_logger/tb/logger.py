@@ -107,12 +107,12 @@ class TensorBoardLogger(ModelLogger):
     def log_batch_metrics(self, metrics: Dict[str, Tensor], step=0, tag=""):
         if self._should_log('batch_metrics', step) and self.log_in_epoch:
             for k, m in metrics.items():
-                self._plot_metric(f"{k.capitalize()}/{tag}", k, m, step)
+                self._plot_metric(f"{k}/{tag}", k, m, step)
 
     def log_epoch_metrics(self, metrics: Dict[str, Tensor], step=0, tag=""):
         if self._should_log('epoch_metrics', step):
             for k, m in metrics.items():
-                self._plot_metric(f"{k.capitalize()}/{tag}/epochwise", k, m, step + 1)
+                self._plot_metric(f"{k}/{tag}/epochwise", k, m, step + 1)
 
     def save_model(self, epoch):
         if (self._should_log('checkpoint', epoch) or epoch == self.num_epochs - 1) and self.net:

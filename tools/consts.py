@@ -1,5 +1,7 @@
 import torch
 
+from tools.preprocessing.transforms import DropColumnTransform
+
 FEATURES = ['FuelGasGTYConsumption', 'FuelGasKYConsumption', 'FuelGasTemperature',
             'AirFurnaceConsumption', 'GasTurbineTemperature', 'EntranceKYTemperature',
             'AfterAfterburningKYTemperature', 'GasTurbineFrontPressure',
@@ -60,7 +62,8 @@ def get_filter_pipeline():
         ColumnValueFilter('cluster', include_indices=["2019-01-08", "2019-07", "2019-12"], mode="include",
                           use_latest=True, gap="24h", shift="8h"),
         SpecifiedColumnsTransform(iqr_filter, TARGETS),
-        RangeFileFilter(["PEMS_PD/nans_segments.ods"])
+        RangeFileFilter(["PEMS_PD/nans_segments.ods"]),
+        DropColumnTransform("cluster")
     )
 
     return filter_pipeline
