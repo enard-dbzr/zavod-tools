@@ -472,3 +472,20 @@ class MakeSnapshotTransform(Transform):
         parts[self.part_label] = df.copy().add_prefix(self.prefix)
 
         return parts
+
+
+class DropColumnTransform(Transform):
+    """
+    Удаляет колонку с указанным именем.
+    """
+    def __init__(self, column_name: str):
+        """
+        :param column_name: Название колонки.
+        """
+        self.column_name = column_name
+
+    def __call__(self, parts: dict[str, pd.DataFrame], borders: list[pd.DatetimeIndex]) -> dict[str, pd.DataFrame]:
+        for df in parts.values():
+            df.drop(self.column_name, axis=1, inplace=True, errors='ignore')
+
+        return parts
