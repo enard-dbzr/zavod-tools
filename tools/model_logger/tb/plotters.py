@@ -8,7 +8,7 @@ from matplotlib import pyplot as plt
 import matplotlib.ticker as ticker
 import matplotlib
 from torch.utils.tensorboard import SummaryWriter
-from matplotlib.colors import LogNorm, NoNorm
+from matplotlib.colors import LogNorm, Normalize
 
 from tools.preprocessing.scalers import DataUnscaler
 
@@ -91,14 +91,16 @@ class HeatmapPlotter(TensorPlotter):
         fig, ax = plt.subplots(figsize=self.figsize)
 
         m = m.unsqueeze(0) if m.dim() == 1 else m
-        norm = LogNorm(*self.cbar_lims) if self.log_scale else NoNorm(*self.cbar_lims)
+        if self.log_scale:
+            norm = LogNorm(*self.cbar_lims)
+        else:
+            norm = None if self.cbar_lims == (None, None) else Normalize(*self.cbar_lims)
         
         if self.permute is not None:
             m = m.permute(self.permute)
 
         sns.heatmap(m, annot=self.show_values, ax=ax, norm=norm)
 
-        # fig.tight_layout()
         writer.add_figure(title, fig, step)
         plt.close(fig)
 
