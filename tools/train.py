@@ -52,6 +52,7 @@ def train_eval(net: nn.Module,
                logger: ModelLogger,
                log_params: bool = False,
                leave_progress_bars=False,
+               clip_value=1e4,
                device="cpu"):
     if isinstance(val_dataloaders, torch.utils.data.DataLoader):
         val_dataloaders = {"val": val_dataloaders}
@@ -81,6 +82,8 @@ def train_eval(net: nn.Module,
                                  ))
                 if not torch.isnan(loss):
                     loss.backward()
+                    
+                    torch.nn.utils.clip_grad_norm_(net.parameters(), clip_value)
                     optimizer.step()
 
                 with torch.no_grad():
